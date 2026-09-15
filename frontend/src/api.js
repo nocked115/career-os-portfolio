@@ -5,7 +5,47 @@
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000"
 
+// 정적 데모 (GitHub Pages). 서버 없이, 데모 데이터로 미리 받아 둔 응답 묶음을 읽는다.
+// 저장은 되지 않는다 — 쓰기 요청은 이유를 말하는 오류로 돌려준다.
+export const STATIC_DEMO = import.meta.env.VITE_STATIC_DEMO === "1"
+export const STATIC_DEMO_DATE = import.meta.env.VITE_DEMO_DATE ?? ""
+
+let demoBundle = null
+
+async function staticRequest(path, options) {
+  const method = options?.method ?? "GET"
+
+  if (method !== "GET") {
+    const error = new Error(`Static demo is read-only: ${method} ${path}`)
+    error.status = 403
+    error.detail = "정적 데모라 저장되지 않아요. 화면은 모두 둘러볼 수 있어요."
+    throw error
+  }
+
+  if (!demoBundle) {
+    const response = await fetch(`${import.meta.env.BASE_URL}demo-data.json`)
+    demoBundle = await response.json()
+  }
+
+  // 같은 주소를 먼저, 없으면 조건(?…)을 뗀 주소를 쓴다 — 날짜 · 분 같은 조건이 달라도 화면이 빈다.
+  const bare = path.split("?")[0]
+  const hit = demoBundle.responses[path] ?? demoBundle.responses[bare]
+
+  if (hit === undefined) {
+    const error = new Error(`Static demo has no data for ${path}`)
+    error.status = 404
+    error.detail = "데모 데이터에 없는 화면이에요."
+    throw error
+  }
+
+  return structuredClone(hit)
+}
+
 async function request(path, options) {
+  if (STATIC_DEMO) {
+    return staticRequest(path, options)
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, options)
 
   if (!response.ok) {

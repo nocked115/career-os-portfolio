@@ -11,9 +11,9 @@
 
 <br>
 
-### [→ 데모 열어보기](https://career-os-production-ccc8.up.railway.app)
+### [→ 데모 열어보기](https://nocked115.github.io/career-os-portfolio/)
 
-로그인 없이 열리는 **읽기 전용 데모**입니다. 데이터는 전부 가상이고, 외부 채용 API 는 꺼져 있습니다.
+설치도 로그인도 없이 열리는 **정적 데모**입니다. 가상 데이터로 만든 실제 앱 화면이고, 둘러볼 수만 있고 저장되지 않습니다.
 
 <br>
 
@@ -406,7 +406,11 @@ career-os/
 
 ### 데모로 둘러보기
 
-[데모](https://career-os-production-ccc8.up.railway.app)는 가상 데이터로 채워진 읽기 전용 배포본입니다. 설치 없이 홈 · 오늘 · 학습 · 기회 · 지원 흐름을 볼 수 있습니다.
+[데모](https://nocked115.github.io/career-os-portfolio/)는 서버 없이 GitHub Pages 에서 열리는 정적 데모입니다. 가상 데이터를 넣은 임시 DB 에서 화면이 읽는 API 응답을 미리 녹화해 두고, 앱이 서버 대신 그 파일을 읽습니다. 저장은 되지 않고, 날짜와 D-day 는 만든 날 기준입니다.
+
+```bash
+bash scripts/build_static_demo.sh   # → static-demo/ (녹화 → 정적 빌드)
+```
 
 ### 로컬 실행
 

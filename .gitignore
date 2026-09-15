@@ -28,3 +28,6 @@ frontend/dist/
 # Tooling
 .claude/
 backend/static/
+
+# 정적 데모 빌드 결과 (scripts/build_static_demo.sh)
+static-demo/
