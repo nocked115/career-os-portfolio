@@ -1,0 +1,356 @@
+/* --------------------------------
+   프로젝트 · 경험
+
+   공통 모양은 ui.css, 입력 칸과 머리는 Learning.css (.learn-field ·
+   .learn-hero) 를 같이 쓴다. 여기는 이 두 화면에만 있는 것.
+-------------------------------- */
+
+.evd {
+  display: grid;
+  gap: 16px;
+}
+
+.evd-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+.evd-head .card-label {
+  margin: 0;
+}
+
+/* 프로젝트 카드 */
+
+.prj-card {
+  display: grid;
+  gap: 14px;
+}
+
+.prj-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.prj-head-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.prj-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.prj-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.prj-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.prj-warn {
+  font-size: 13px;
+  color: var(--warn);
+}
+
+.prj-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+  gap: 10px;
+}
+
+.prj-fact {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+
+  min-width: 0;
+  padding: 12px 14px;
+
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: #fafbfd;
+}
+
+.prj-fact strong {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.prj-fact-key {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.prj-fact-hint {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.prj-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.prj-progress-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.prj-progress-row .prj-fact-key {
+  margin-right: 4px;
+}
+
+.prj-step.ui-btn {
+  min-height: 38px;
+  padding: 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.prj-editor,
+.exp-editor {
+  display: grid;
+  gap: 12px;
+
+  padding: 14px;
+
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+
+.prj-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.prj-wide {
+  grid-column: span 2;
+}
+
+.prj-full {
+  grid-column: 1 / -1;
+}
+
+.prj-editor-grid .agent-input,
+.prj-editor-grid .plan-input,
+.prj-editor-grid .path-select {
+  width: 100%;
+}
+
+.prj-skill-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.prj-skill-link .learn-field {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* 완료 직후 — 증거화 제안 */
+
+.prj-done {
+  display: grid;
+  gap: 8px;
+
+  padding: 14px 16px;
+
+  border: 1px solid #bfe0cb;
+  border-radius: 12px;
+  background: var(--ok-soft);
+}
+
+.prj-done-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ok);
+}
+
+.prj-done-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.prj-proves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+
+  margin: 0;
+  padding: 0;
+
+  list-style: none;
+
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ok);
+}
+
+/* 경험 카드 */
+
+.exp-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.exp-card {
+  display: grid;
+  gap: 12px;
+
+  padding: 16px;
+
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+
+  scroll-margin-top: 16px;
+}
+
+.exp-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.exp-fields {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.exp-fields > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.exp-fields dt {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.exp-fields dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.exp-links {
+  display: grid;
+  gap: 4px;
+
+  margin: 0;
+  padding: 10px 0 0;
+
+  border-top: 1px solid var(--line-soft);
+
+  list-style: none;
+
+  font-size: 14px;
+}
+
+.exp-links li {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.exp-links span {
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.exp-links a {
+  color: var(--action-strong);
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.exp-links a:hover {
+  text-decoration: underline;
+}
+
+.exp-nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+
+  padding: 10px 12px;
+
+  border-radius: 10px;
+  background: var(--warn-soft);
+
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--warn);
+}
+
+.exp-missing {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+@media (max-width: 900px) {
+  .prj-facts,
+  .prj-editor-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prj-wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .prj-head {
+    flex-direction: column;
+  }
+
+  .exp-badges {
+    justify-content: flex-start;
+  }
+
+  .exp-fields > div,
+  .exp-links li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}

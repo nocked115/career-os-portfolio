@@ -1,0 +1,258 @@
+/* --------------------------------
+   Today (components/TodayPage.jsx)
+
+   요약 → 가장 먼저 할 일 → 작업 목록 → 근거.
+   글자는 14px 아래로 내리지 않는다. 오래 보는 화면이다.
+-------------------------------- */
+
+.td {
+  display: grid;
+  gap: 16px;
+  color: var(--text);
+}
+
+.td-hero {
+  display: grid;
+  gap: 16px;
+}
+
+.td-greet {
+  margin: 0;
+
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.td-date {
+  margin-left: 10px;
+
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-soft);
+}
+
+.td-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.td-fact {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+
+  min-width: 0;
+  padding: 14px 16px;
+
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.td-fact-key {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.td-fact-value {
+  font-size: 22px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.td-fact-hint {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+/* 작업 목록 */
+
+.td-plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.td-plan-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.td-plan-sub {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  color: var(--text-soft);
+}
+
+.td-settings {
+  margin-top: 14px;
+}
+
+.td-link {
+  color: var(--action-strong);
+  font-weight: 600;
+}
+
+.td-deadlines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  margin-top: 14px;
+}
+
+.td-tasks {
+  display: grid;
+  gap: 10px;
+
+  margin: 14px 0 0;
+  padding: 0;
+
+  list-style: none;
+}
+
+.td-task {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 14px;
+
+  padding: 16px;
+
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.td-task-done {
+  background: #f6faf7;
+}
+
+.td-task-done .td-task-title {
+  color: var(--text-soft);
+  text-decoration: line-through;
+}
+
+.td-task-skipped {
+  opacity: 0.6;
+}
+
+.td-check.ui-btn {
+  width: 40px;
+  height: 40px;
+  min-height: 0;
+  padding: 0;
+
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--text-soft);
+
+  font-size: 14px;
+}
+
+.td-check.ui-btn:hover:not(:disabled) {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.td-task-done .td-check.ui-btn {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: #fff;
+  opacity: 1;
+}
+
+.td-task-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.td-task-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.td-task-minutes {
+  margin-left: auto;
+
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.td-task-title {
+  font-size: 16px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.td-task-line {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+
+  margin: 0;
+
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.td-task-key {
+  padding-top: 1px;
+
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.td-task-actions {
+  margin-top: 4px;
+}
+
+.td-more {
+  margin-top: 12px;
+}
+
+.td-more summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--action-strong);
+  cursor: pointer;
+}
+
+/* 근거 레일의 숫자는 접힌 안쪽이라 조금 작아도 된다 */
+.today-why .today-why-list {
+  margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .td-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .td-task {
+    grid-template-columns: 40px minmax(0, 1fr);
+    padding: 14px;
+  }
+
+  .td-task-line {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .td-task-actions .ui-btn {
+    flex: 1;
+  }
+}

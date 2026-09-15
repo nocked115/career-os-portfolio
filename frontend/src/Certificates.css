@@ -1,0 +1,131 @@
+/* --------------------------------
+   자격증 · 어학 (components/CertificatesCard.jsx)
+-------------------------------- */
+
+.cert-card {
+  display: grid;
+  gap: 12px;
+}
+
+.cert-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cert-column {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cert-column-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line-soft);
+
+  font-size: 15px;
+}
+
+.cert-column-head .muted {
+  font-size: 12.5px;
+}
+
+.cert-list {
+  display: grid;
+  gap: 8px;
+
+  margin: 0;
+  padding: 0;
+
+  list-style: none;
+}
+
+.cert-item {
+  display: grid;
+  gap: 6px;
+
+  padding: 12px 14px;
+
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.cert-item.is-planned {
+  border-style: dashed;
+  background: #fafbfd;
+}
+
+.cert-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.cert-name {
+  font-size: 15px;
+  color: var(--text);
+}
+
+.cert-score {
+  padding: 1px 9px;
+
+  border-radius: 8px;
+  background: var(--action-soft);
+  color: var(--action-strong);
+
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.cert-meta,
+.cert-note {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.cert-form {
+  display: grid;
+  gap: 10px;
+
+  padding: 14px;
+
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+
+.cert-form .agent-input,
+.cert-form .plan-input,
+.cert-form .path-select {
+  width: 100%;
+}
+
+/* 기회 화면 — 자격 경고 옆 "내 어학 · 자격" */
+.opp-mine {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.opp-mine strong {
+  margin-right: 4px;
+  color: var(--warn);
+}
+
+@media (max-width: 900px) {
+  .cert-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

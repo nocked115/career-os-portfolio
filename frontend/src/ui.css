@@ -1,0 +1,420 @@
+/* --------------------------------
+   공통 컴포넌트 (components/ui.jsx)
+
+   바탕과 선은 App.css :root 의 기존 토큰을 그대로 쓴다 — 홈의 우주와
+   같은 세계라는 결정(DESIGN.md 5장)을 지킨다. 여기서는 의미가 있는
+   색만 더한다.
+     --action  행동 · 진행 중
+     --warn    마감 · 주의
+     --ok      완료 · 보유
+     --bad     부족 · 초과 · 오류
+-------------------------------- */
+
+:root {
+  --text: #1c2436;
+  --text-soft: #5c6475;
+
+  --action: #3b67c4;
+  --action-strong: #2f55a8;
+  --action-soft: #eaf0fb;
+  --action-line: #cbd8f2;
+
+  --warn: #9a5a00;
+  --warn-soft: #fff1d6;
+
+  --ok: #2b7348;
+  --ok-soft: #e2f2e8;
+
+  --bad: #b3261e;
+  --bad-soft: #fdecea;
+}
+
+/* 버튼 */
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  min-height: 42px;
+  padding: 0 16px;
+
+  border: 1px solid transparent;
+  border-radius: 10px;
+
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+
+  cursor: pointer;
+}
+
+.ui-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ui-btn:focus-visible {
+  outline: 3px solid var(--action-line);
+  outline-offset: 2px;
+}
+
+.ui-btn-primary {
+  background: var(--action);
+  color: #fff;
+}
+
+.ui-btn-primary:hover:not(:disabled) {
+  background: var(--action-strong);
+}
+
+.ui-btn-secondary {
+  border-color: var(--line);
+  background: #fff;
+  color: var(--text);
+}
+
+.ui-btn-secondary:hover:not(:disabled) {
+  border-color: var(--action-line);
+  color: var(--action-strong);
+}
+
+.ui-btn-quiet {
+  padding: 0 10px;
+  background: transparent;
+  color: var(--text-soft);
+}
+
+.ui-btn-quiet:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.ui-btn-danger {
+  border-color: #efb4ae;
+  background: #fff;
+  color: var(--bad);
+}
+
+.ui-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 로딩 · 오류 */
+
+.ui-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+.ui-state-error {
+  display: grid;
+  justify-items: start;
+}
+
+.ui-state-error strong {
+  font-size: 15px;
+  color: var(--bad);
+}
+
+.ui-state-hint {
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.ui-spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+
+  border: 2px solid var(--action-line);
+  border-top-color: var(--action);
+  border-radius: 50%;
+
+  animation: ui-spin 0.8s linear infinite;
+}
+
+@keyframes ui-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 빈 상태 */
+
+.ui-empty {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+
+  padding: 18px;
+
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: #f8f9fc;
+
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.ui-empty strong {
+  font-size: 15px;
+  color: var(--text);
+}
+
+.ui-empty p {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+/* 진행 막대 */
+
+.ui-progress {
+  display: block;
+  height: 6px;
+
+  border-radius: 999px;
+  background: #e6e9f0;
+
+  overflow: hidden;
+}
+
+.ui-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--action);
+}
+
+/* 배지 */
+
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+
+  min-height: 24px;
+  padding: 0 9px;
+
+  border-radius: 999px;
+  background: #eef1f6;
+  color: #4a5263;
+
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ui-badge-action { background: var(--action-soft); color: var(--action-strong); }
+.ui-badge-warn { background: var(--warn-soft); color: var(--warn); }
+.ui-badge-ok { background: var(--ok-soft); color: var(--ok); }
+.ui-badge-bad { background: var(--bad-soft); color: var(--bad); }
+
+/* 영역마다 색이 다르면 목록에서 모양으로 먼저 구분된다. */
+.ui-badge-area-learning_step { background: #e6edfb; color: #2f55a8; }
+.ui-badge-area-resource { background: #e0f2ef; color: #1f6b62; }
+.ui-badge-area-project { background: #efe9fb; color: #5b40a8; }
+.ui-badge-area-application { background: #fdeede; color: #8a4c10; }
+.ui-badge-area-opportunity { background: #fbe6ee; color: #9a2f5b; }
+.ui-badge-area-routine { background: #eef3e0; color: #4f6320; }
+
+/* 다음 행동 */
+
+.ui-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+
+  padding: 16px 18px;
+
+  border: 1px solid var(--action-line);
+  border-radius: 14px;
+  background: var(--action-soft);
+}
+
+.ui-next-ok {
+  border-color: #bfe0cb;
+  background: var(--ok-soft);
+}
+
+.ui-next-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+
+  width: 46px;
+  height: 46px;
+
+  border-radius: 50%;
+  background: var(--action);
+  color: #fff;
+
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ui-next-ok .ui-next-icon {
+  background: var(--ok);
+}
+
+.ui-next-body {
+  flex: 1;
+  min-width: 200px;
+
+  display: grid;
+  gap: 3px;
+}
+
+.ui-next-eyebrow {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--action-strong);
+}
+
+.ui-next-ok .ui-next-eyebrow {
+  color: var(--ok);
+}
+
+.ui-next-title {
+  font-size: 18px;
+  line-height: 1.35;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.ui-next-detail {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.ui-next-meta {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.ui-next-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 근거 */
+
+.ui-why-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ui-why-conclusion {
+  margin: 10px 0 0;
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.ui-why-details {
+  margin-top: 12px;
+}
+
+.ui-why-details summary {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--action-strong);
+  cursor: pointer;
+}
+
+.ui-why-body {
+  margin-top: 10px;
+}
+
+/* 알림 */
+
+.ui-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+
+  margin: 0;
+  padding: 10px 14px;
+
+  border-radius: 10px;
+
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ui-notice-ok { background: var(--ok-soft); color: var(--ok); }
+.ui-notice-bad { background: var(--bad-soft); color: var(--bad); }
+.ui-notice-warn { background: var(--warn-soft); color: var(--warn); }
+
+.ui-notice-close {
+  margin-left: auto;
+  min-width: 28px;
+  min-height: 28px;
+
+  border: 0;
+  background: none;
+  color: inherit;
+
+  font-size: 18px;
+  line-height: 1;
+
+  cursor: pointer;
+}
+
+/* 앱 첫 화면 (불러오는 중 · 못 엶) */
+
+.app-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+
+  padding-inline: 16px;
+
+  background: var(--paper);
+  color: var(--text);
+}
+
+.app-gate-box {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+
+  max-width: 420px;
+
+  font-size: 15px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.app-gate-box h2,
+.app-gate-box p {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .ui-next-actions {
+    flex-basis: 100%;
+  }
+
+  .ui-next-actions .ui-btn {
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-spinner {
+    animation: none;
+  }
+}

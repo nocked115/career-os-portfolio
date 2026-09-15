@@ -1,0 +1,285 @@
+/* --------------------------------
+   학습 · 학습 세션 · 내 자료
+
+   공통 모양은 ui.css. 여기는 이 화면들에만 있는 것.
+   좁은 화면 순서: 다음 단계 → 이번 세션 자료 → 목표 → 상세.
+-------------------------------- */
+
+.learn {
+  color: var(--text);
+}
+
+.learn-hero {
+  display: grid;
+  gap: 14px;
+}
+
+.learn-title {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+
+.learn-sub {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+.learn-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.learn-tabs .chip {
+  min-height: 40px;
+  font-size: 14px;
+}
+
+/* 경로 카드 */
+
+.learn-path {
+  display: grid;
+  gap: 10px;
+}
+
+.learn-path.is-open {
+  border-color: var(--action-line);
+}
+
+.learn-path-head {
+  width: 100%;
+  text-align: left;
+}
+
+.learn-path-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.learn-path-main strong {
+  font-size: 16px;
+}
+
+.learn-path-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  font-size: 13.5px;
+  color: var(--text-soft);
+}
+
+.learn-path-percent {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.learn-new {
+  display: grid;
+  gap: 12px;
+}
+
+.learn-field {
+  display: grid;
+  gap: 4px;
+
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.learn-field input,
+.learn-field select,
+.learn-field textarea {
+  font-weight: 400;
+  color: var(--text);
+}
+
+.learn-textarea {
+  width: 100%;
+  padding: 10px 12px;
+
+  border: 1px solid var(--line);
+  border-radius: 10px;
+
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+
+  resize: vertical;
+}
+
+.learn-textarea:focus {
+  outline: none;
+  border-color: var(--action);
+  box-shadow: 0 0 0 3px var(--action-soft);
+}
+
+.learn-aside {
+  display: grid;
+  gap: 2px;
+
+  margin: 12px 0 0;
+  padding: 10px 12px;
+
+  border-radius: 10px;
+  background: #f5f7fb;
+
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.learn-aside strong {
+  color: var(--text);
+}
+
+.learn-legend {
+  margin: 0;
+}
+
+/* 중요도 배지 */
+
+.ui-badge-imp-primary { background: var(--action-soft); color: var(--action-strong); }
+.ui-badge-imp-supplementary { background: #eef1f6; color: #4a5263; }
+.ui-badge-imp-deep_dive { background: #efe9fb; color: #5b40a8; }
+
+/* 세션 */
+
+.learn-why-meta {
+  margin-top: 12px;
+}
+
+.learn-enough {
+  margin: 4px 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.learn-goal-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.learn-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+
+  margin-top: 14px;
+  padding-top: 14px;
+
+  border-top: 1px solid var(--line-soft);
+}
+
+.learn-link .learn-field {
+  flex: 1;
+  min-width: 220px;
+}
+
+.put-away summary {
+  cursor: pointer;
+}
+
+.learn-result {
+  display: grid;
+  gap: 10px;
+
+  border-color: #bfe0cb;
+  background: var(--ok-soft);
+}
+
+.learn-result-title {
+  margin: 0;
+
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ok);
+}
+
+.learn-result-list {
+  display: grid;
+  gap: 4px;
+
+  margin: 0;
+  padding-left: 18px;
+
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+.learn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 내 자료 */
+
+.lib-grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.lib-head {
+  width: 100%;
+  text-align: left;
+}
+
+.lib-head-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lib-head-main strong {
+  font-size: 15px;
+}
+
+.lib-head-main .muted {
+  font-size: 13px;
+}
+
+.lib-linked {
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.lib-check.ui-btn {
+  width: 32px;
+  height: 32px;
+}
+
+.seg-form {
+  align-items: flex-end;
+}
+
+/* 좁은 화면: 다음 단계(맨 위 카드) → 이번 세션 자료 → 경로 목록.
+   두 단을 그냥 세로로 쌓으면 오늘 쓸 자료가 경로 목록 아래로 밀린다. */
+@media (max-width: 1100px) {
+  .learn-grid .learn-right {
+    order: -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .learn-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+
+    padding-block: 10px;
+
+    background: var(--paper);
+  }
+
+  .learn-actions .ui-btn {
+    flex: 1;
+  }
+}

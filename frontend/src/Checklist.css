@@ -1,0 +1,265 @@
+/* --------------------------------
+   학습 단계 체크리스트 (components/ChecklistPanel.jsx)
+-------------------------------- */
+
+.ck {
+  display: grid;
+  gap: 12px;
+}
+
+.ck-section {
+  display: grid;
+  gap: 4px;
+}
+
+.ck-section-title {
+  margin: 6px 0 0;
+
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  text-wrap: balance;
+}
+
+.ck-note {
+  margin: 0;
+
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.ck-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ck-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--action-line);
+}
+
+.ck-item:last-child {
+  border-bottom: none;
+}
+
+.ck-row {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+
+  cursor: pointer;
+}
+
+.ck-row input {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+
+  accent-color: var(--action);
+}
+
+.ck-text {
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.ck-text code,
+.td-checklist code {
+  padding: 1px 5px;
+  border-radius: 4px;
+
+  background: var(--action-soft);
+
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88em;
+}
+
+.ck-done .ck-text {
+  color: var(--text-soft);
+  text-decoration: line-through;
+}
+
+.ck-excluded {
+  color: var(--text-soft);
+  text-decoration: line-through;
+}
+
+.ck-link {
+  flex: 1;
+
+  font-size: 14px;
+  color: var(--action-strong);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.ck-link:hover {
+  text-decoration: underline;
+}
+
+.ck-mini {
+  flex: 0 0 auto;
+
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+
+  background: none;
+
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.ck-mini:hover,
+.ck-mini:focus-visible {
+  border-color: var(--action-line);
+  color: var(--text);
+}
+
+.ck-mini-bad {
+  color: var(--bad);
+}
+
+.ck-confirm {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.ck-all-done {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+
+  padding: 12px 14px;
+  border: 1px solid var(--ok);
+  border-radius: 12px;
+
+  background: var(--ok-soft);
+
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ck-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ck-add .agent-input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+/* 붙여넣기 미리보기 */
+.ck-import {
+  display: grid;
+  gap: 10px;
+
+  padding: 12px;
+  border: 1px dashed var(--action-line);
+  border-radius: 12px;
+}
+
+.ck-preview {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+
+  padding-right: 4px;
+}
+
+.ck-preview-count {
+  margin: 0;
+
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ck-warn {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+
+  background: var(--warn-soft);
+
+  font-size: 13px;
+  color: var(--text);
+}
+
+.ck-file {
+  position: relative;
+
+  display: inline-flex;
+  align-items: center;
+
+  padding: 8px 14px;
+  border: 1px solid var(--action-line);
+  border-radius: 10px;
+
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--action-strong);
+  cursor: pointer;
+}
+
+.ck-file:focus-within {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+
+.ck-file input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ck-mode {
+  display: grid;
+  gap: 6px;
+
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--action-line);
+  border-radius: 10px;
+
+  font-size: 14px;
+}
+
+.ck-mode legend {
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.ck-mode label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 오늘 계획 카드의 다음 체크 항목 */
+.td-checklist-next {
+  display: grid;
+  gap: 2px;
+
+  margin: 0;
+  padding-left: 18px;
+}

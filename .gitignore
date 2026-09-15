@@ -1,0 +1,30 @@
+# Backend
+backend/.venv/
+backend/.env
+backend/__pycache__/
+backend/**/*.pyc
+# DB 는 파일 이름이 아니라 확장자로 막는다. 이름을 하나씩 적어뒀더니
+# career_os.db.bak-155629 가 그대로 추적 대상이 됐다.
+*.db
+*.db-journal
+*.db.bak*
+backend/.pytest_cache/
+
+# 내보낸 데이터. 진짜 경력 기록이 그대로 들어 있으므로
+# 저장소에 들어가면 안 된다 (비공개 저장소라도).
+#
+# 이름을 하나씩 적었더니 career-os-from-server.json 이 그대로
+# 새어 나왔다. 저장소 최상단의 career-os-*.json 은 전부 막는다.
+/career-os-*.json
+*.career-os.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# macOS
+.DS_Store
+
+# Tooling
+.claude/
+backend/static/

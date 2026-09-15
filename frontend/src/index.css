@@ -1,0 +1,32 @@
+/* 최소 리셋만 담당한다. 화면 디자인은 App.css 가 소유한다.
+   여기서 색·정렬·폭을 정하면 App.css 와 싸운다.
+
+   이전에는 Vite 스타터 템플릿이 그대로 남아 있어서 세 가지 문제가 있었다.
+
+   1. 다크 모드에서 h1/h2 색을 #f3f4f6(거의 흰색)으로 바꿨다.
+      App.css 의 배경은 밝은 색(#f5f6f8)이라 제목이 배경에 묻혀 보이지 않았다.
+      OS 를 다크 모드로 쓰는 사람에게는 화면 제목이 전부 사라진 상태였다.
+   2. #root 에 text-align: center 가 걸려 있어 새 화면의 목록과 태그가
+      가운데로 밀렸다. 화면마다 따로 되돌려야 했다.
+   3. #root 의 고정 폭(1126px)과 border-inline 때문에
+      본문 좌우에 정체불명의 세로선이 그려졌다. */
+
+:root {
+  color-scheme: light;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+p {
+  margin: 0;
+}

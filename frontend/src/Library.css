@@ -1,0 +1,725 @@
+/* --------------------------------
+   내 학습 자료 — 서가 (components/LibraryShelf.jsx)
+
+   큰 책장을 그리지 않는다. 생산성 앱의 콘텐츠 레일처럼, 레일 하나에
+   카드 3~4장이 보이고 오른쪽 끝에 다음 카드가 조금 걸친다.
+   카드 높이는 낮게 — 레일 세 개가 한 화면에 들어오도록.
+-------------------------------- */
+
+.shelf {
+  display: grid;
+  gap: 16px;
+  color: var(--text);
+}
+
+.shelf-head {
+  display: grid;
+  gap: 12px;
+}
+
+.shelf-title {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.shelf-search .agent-input {
+  width: 100%;
+}
+
+/* HOT 띠 — 재미는 여기서, 숫자는 기록에서 */
+
+.hot-strip {
+  display: grid;
+  gap: 8px;
+
+  padding: 12px 14px;
+
+  border-radius: 12px;
+  background: linear-gradient(90deg, #fff4e0, #fdf7ee 60%, #f7f4fb);
+}
+
+.hot-strip-title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #8a4c10;
+}
+
+.hot-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+
+  margin: 0;
+  padding: 0;
+
+  list-style: none;
+}
+
+.hot-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  width: 100%;
+  padding: 8px 10px;
+
+  border: 1px solid #f1dfc2;
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+
+  font: inherit;
+  text-align: left;
+
+  cursor: pointer;
+}
+
+.hot-item:hover {
+  border-color: #e3b977;
+}
+
+.hot-medal {
+  flex: none;
+  display: grid;
+  place-items: center;
+
+  width: 30px;
+  height: 30px;
+
+  border-radius: 50%;
+
+  font-size: 14px;
+  font-weight: 900;
+  color: #fff;
+}
+
+.medal-1 { background: #d9951c; box-shadow: 0 0 0 3px #fbe3b5; }
+.medal-2 { background: #8f98a8; box-shadow: 0 0 0 3px #e3e7ee; }
+.medal-3 { background: #b4744a; box-shadow: 0 0 0 3px #f1d9c7; }
+
+.hot-body {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.hot-body strong {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hot-body small {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+/* 레일 */
+
+.shelf-rails {
+  display: grid;
+  gap: 22px;
+}
+
+.rail {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  scroll-margin-top: 16px;
+}
+
+.rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rail-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+
+  margin: 0;
+
+  font-size: 16px;
+}
+
+.rail-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.rail-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rail-arrow {
+  width: 32px;
+  height: 32px;
+
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--text);
+
+  font-size: 18px;
+  line-height: 1;
+
+  cursor: pointer;
+}
+
+.rail-all {
+  padding: 6px 4px;
+
+  border: 0;
+  background: none;
+  color: var(--action-strong);
+
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+/* 오른쪽 끝에 다음 카드가 걸쳐 보이도록 폭을 정한다. */
+.rail-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 3 * 12px) / 3.35);
+  gap: 12px;
+
+  margin: 0;
+  padding: 2px 2px 8px;
+
+  list-style: none;
+
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+}
+
+.rail-grid {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-auto-columns: auto;
+  overflow: visible;
+}
+
+.rail-item {
+  min-width: 0;
+  scroll-snap-align: start;
+}
+
+.rail-completed {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.shelf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+/* 카드 공통 */
+
+.rc {
+  position: relative;
+
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: #fff;
+  color: inherit;
+
+  font: inherit;
+  text-align: left;
+
+  cursor: pointer;
+}
+
+.rc:hover {
+  border-color: var(--action-line);
+}
+
+.rc:focus-visible {
+  outline: 3px solid var(--action-line);
+  outline-offset: 2px;
+}
+
+.rc-body {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rc-title {
+  font-size: 13.5px;
+  line-height: 1.35;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rc-meta {
+  font-size: 12.5px;
+  color: var(--text-soft);
+}
+
+.rc-hot {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 2;
+
+  padding: 2px 7px;
+
+  border-radius: 999px;
+
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+
+.drawer-hot .rc-hot {
+  position: static;
+}
+
+.rc-hot-1 { background: #d9951c; }
+.rc-hot-2 { background: #8f98a8; }
+.rc-hot-3 { background: #b4744a; }
+
+/* 영상 — 가로형 썸네일, 가운데 재생, 오른쪽 아래 길이 */
+
+.rc-thumb {
+  position: relative;
+
+  display: block;
+  aspect-ratio: 16 / 9;
+  max-width: 100%;
+
+  border-radius: 8px;
+  background: linear-gradient(135deg, #2c3a55, #4c5f86);
+
+  overflow: hidden;
+}
+
+.rc-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.rc-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+
+  display: grid;
+  place-items: center;
+
+  width: 38px;
+  height: 38px;
+
+  border-radius: 50%;
+  background: rgba(15, 20, 32, 0.72);
+  color: #fff;
+
+  font-size: 15px;
+
+  transform: translate(-50%, -50%);
+}
+
+.rc-clock {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+
+  padding: 1px 6px;
+
+  border-radius: 5px;
+  background: rgba(15, 20, 32, 0.8);
+  color: #fff;
+
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 책 — 폭이 좁은 세로 표지 */
+
+.rc-book {
+  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-rows: none;
+  align-items: start;
+}
+
+.rc-cover {
+  display: grid;
+  grid-template-rows: 1fr auto;
+
+  aspect-ratio: 3 / 4.2;
+  max-width: 100%;
+  padding: 8px 7px;
+
+  border-radius: 3px 7px 7px 3px;
+  box-shadow: inset 5px 0 0 rgba(0, 0, 0, 0.14);
+  color: #fff;
+}
+
+.rc-cover-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 1.3;
+  word-break: keep-all;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rc-cover-foot {
+  font-size: 9.5px;
+  opacity: 0.85;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 세이지 · 테라코타 · 네이비 · 호박 · 자두 · 청록 */
+.cover-0 { background: #6f8f72; }
+.cover-1 { background: #b86a4b; }
+.cover-2 { background: #34496e; }
+.cover-3 { background: #c28a2c; }
+.cover-4 { background: #7c5a86; }
+.cover-5 { background: #3f7f7a; }
+
+/* 문서 — 흰 종이, 접힌 모서리 */
+
+.rc-paper {
+  position: relative;
+
+  display: grid;
+  align-content: start;
+  gap: 6px;
+
+  aspect-ratio: 16 / 9;
+  max-width: 100%;
+  padding: 10px 12px;
+
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: linear-gradient(225deg, #e9edf5 14px, #fff 14px);
+
+  overflow: hidden;
+}
+
+.rc-paper-tag {
+  justify-self: start;
+
+  padding: 1px 6px;
+
+  border-radius: 4px;
+  background: var(--bad-soft);
+  color: var(--bad);
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rc-paper-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rc-paper-lines {
+  display: block;
+  height: 26px;
+
+  background: repeating-linear-gradient(#dfe4ee 0 2px, transparent 2px 8px);
+  opacity: 0.8;
+}
+
+/* 실습 — 짙은 터미널 */
+
+.rc-term {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+
+  aspect-ratio: 16 / 9;
+  max-width: 100%;
+  padding: 8px 10px;
+
+  border-radius: 8px;
+  background: #1c2230;
+  color: #d7e3d2;
+
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  overflow: hidden;
+}
+
+.rc-term-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.rc-term-bar i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #56607a;
+}
+
+.rc-term-prompt {
+  font-size: 16px;
+  font-weight: 800;
+  color: #8fd18a;
+}
+
+.rc-term-line {
+  font-size: 11.5px;
+  line-height: 1.3;
+  opacity: 0.9;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 상세 서랍 */
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+
+  background: rgba(20, 26, 40, 0.28);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+
+  display: grid;
+  align-content: start;
+  gap: 14px;
+
+  width: min(400px, 100%);
+  padding: 20px;
+
+  background: var(--card);
+  border-left: 1px solid var(--line);
+
+  overflow-y: auto;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drawer-title {
+  margin: 4px 0 0;
+  font-size: 19px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.drawer-close {
+  flex: none;
+
+  width: 38px;
+  height: 38px;
+
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--text);
+
+  font-size: 20px;
+  line-height: 1;
+
+  cursor: pointer;
+}
+
+.drawer-hot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  margin: 0;
+
+  font-size: 13.5px;
+  color: #8a4c10;
+}
+
+.drawer-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.drawer-facts > div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.drawer-facts dt {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.drawer-facts dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.drawer-facts small {
+  color: var(--text-soft);
+}
+
+.drawer-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.drawer-chapters summary {
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.drawer-chapters ol {
+  display: grid;
+  gap: 4px;
+
+  margin: 8px 0 0;
+  padding: 0;
+
+  list-style: none;
+
+  font-size: 13.5px;
+}
+
+.drawer-chapters li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.drawer-chapters li.is-done {
+  color: var(--text-soft);
+}
+
+.drawer-chapters small {
+  color: var(--text-soft);
+}
+
+.lib-manage > summary {
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* 좁은 화면 — 레일은 그대로 가로, 상세는 아래에서 올라오는 시트 */
+
+/* 폭이 줄어도 "여러 장 + 걸친 다음 장" 을 지킨다.
+   카드를 크게 키우면 레일이 한 장짜리 슬라이드가 된다. */
+@media (max-width: 1100px) {
+  .rail-track {
+    grid-auto-columns: calc((100% - 2 * 12px) / 2.4);
+  }
+}
+
+@media (max-width: 720px) {
+  .rail-track {
+    grid-auto-columns: 44%;
+    gap: 10px;
+  }
+
+  .rc-book {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .rc-cover {
+    padding: 5px 4px;
+  }
+
+  .rc-cover-title {
+    font-size: 9.5px;
+    -webkit-line-clamp: 3;
+  }
+
+  .rc-cover-foot {
+    display: none;
+  }
+
+  .rc-title {
+    font-size: 13px;
+  }
+
+  .hot-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .drawer {
+    top: auto;
+    left: 0;
+
+    width: 100%;
+    max-height: 82vh;
+
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 16px 16px 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-track {
+    scroll-behavior: auto;
+  }
+}

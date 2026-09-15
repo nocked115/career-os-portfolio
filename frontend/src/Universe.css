@@ -1,0 +1,738 @@
+/* Career Universe — 홈.
+
+   DESIGN.md 원칙 3: 홈은 특별하게, 작업 화면은 편하게.
+   그래서 이 파일은 App.css 와 섞지 않는다. 어두운 세계는 여기서만.
+
+   구현은 CSS + SVG 다. Three.js 를 쓰면 번들이 몇 배가 되고
+   지금 필요한 건 회전하는 타원 하나뿐이다. */
+
+.universe {
+  position: relative;
+
+  min-height: 100vh;
+
+  background:
+    radial-gradient(120% 90% at 50% 42%,
+      #101825 0%, #0d131c 58%, #070a10 100%);
+
+  color: #e8edf5;
+
+  overflow: hidden;
+}
+
+.universe-loading,
+.universe-error {
+  padding: 120px 32px;
+  text-align: center;
+  color: #7e8ca2;
+}
+
+.universe-error {
+  color: #f0709f;
+}
+
+/* 배경의 별 = 쌓인 증거. 개수가 곧 값이다. */
+
+.universe-stars {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.evidence-star {
+  position: absolute;
+
+  width: 3px;
+  height: 3px;
+
+  border-radius: 50%;
+
+  background: #e0a458;
+  box-shadow: 0 0 10px 3px rgba(224, 164, 88, 0.22);
+}
+
+/* --------------------------------
+   궤도
+-------------------------------- */
+
+.orbit-area {
+  position: relative;
+
+  /* 바닥값이 있는 이유: 타원 반지름이 height/2 - 78 이라
+     (Universe.jsx) 창이 낮으면 궤도가 쪼그라들어 맨 아래 천체가
+     핵심 원의 FOCUS 줄을 덮는다. 705px 짜리 창에서 이미 간격이
+     8px 였다. 겹치는 것보다 스크롤이 낫다. */
+  height: clamp(430px, 56vh, 460px);
+
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.orbit-area:active {
+  cursor: grabbing;
+}
+
+.orbit-svg {
+  position: absolute;
+  inset: 0;
+
+  width: 100%;
+  height: 100%;
+
+  pointer-events: none;
+}
+
+.orbit-tick {
+  position: absolute;
+  left: 0;
+  top: 0;
+
+  width: 2px;
+  height: 9px;
+
+  margin-left: -1px;
+  margin-top: -4px;
+
+  border-radius: 1px;
+  background: rgba(51, 64, 86, 0.14);
+
+  pointer-events: none;
+}
+
+.orbit-tick[data-major="true"] {
+  height: 15px;
+  margin-top: -7px;
+  background: rgba(61, 76, 102, 0.2);
+}
+
+/* 선택 표식은 별 모양. 화살표나 선은 이 세계관에 맞지 않는다. */
+.orbit-marker {
+  position: absolute;
+  left: 50%;
+
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+
+  z-index: 40;
+
+  color: #f0709f;
+  filter: drop-shadow(0 0 8px rgba(240, 112, 159, 0.55));
+
+  pointer-events: none;
+}
+
+.orbit-marker svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* --------------------------------
+   중앙 — 나
+-------------------------------- */
+
+.core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 150;
+
+  width: 212px;
+  aspect-ratio: 1;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+
+  padding: 24px 16px;
+
+  border: 1px solid rgba(91, 141, 239, 0.28);
+  border-radius: 50%;
+
+  background:
+    radial-gradient(74% 74% at 38% 30%,
+      #24344f 0%, #16202f 52%, #0e1622 100%);
+
+  box-shadow:
+    0 0 0 12px rgba(91, 141, 239, 0.045),
+    0 0 74px rgba(91, 141, 239, 0.2),
+    inset 0 0 46px rgba(0, 0, 0, 0.55);
+
+  color: inherit;
+  text-align: center;
+
+  cursor: pointer;
+}
+
+.core:focus-visible {
+  outline: 2px solid #5b8def;
+  outline-offset: 6px;
+}
+
+.core-me {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.core-dir {
+  font-size: 12px;
+  color: #5b8def;
+  letter-spacing: 0.04em;
+}
+
+.core-rule {
+  width: 40px;
+  height: 1px;
+
+  margin: 12px 0 8px;
+
+  background: #232e3e;
+}
+
+.core-key {
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  color: #56637a;
+}
+
+/* 준비도 링. 구체 테두리를 따라 돈다. */
+.core-ring {
+  position: absolute;
+  inset: -6px;
+
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+
+  pointer-events: none;
+}
+
+.core-percent {
+  margin-top: 14px;
+
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 퍼센트 하나만 띄우면 무엇의 퍼센트인지 알 수 없다.
+   "커리어 68% 완료" 같은 숫자는 근거를 댈 수 없으므로 만들지 않는다. */
+.core-basis {
+  max-width: 150px;
+
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: #56637a;
+  text-align: center;
+}
+
+.core-focus {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #e0a458;
+  letter-spacing: 0.06em;
+
+  /* 한 줄로 고정한다.
+     스킬 이름이 길면 두 줄로 접혔고, 늘어난 두 번째 줄이 아래
+     행성과 겹쳤다 ("Machine Learning" 에서 바로 났다). 원 안의
+     자리는 144px 로 정해져 있으니 이름이 길어지면 잘라내는 편이
+     겹치는 것보다 낫다. 전체 이름은 title 로 남긴다. */
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --------------------------------
+   천체
+-------------------------------- */
+
+.planet {
+  position: absolute;
+  left: 0;
+  top: 0;
+
+  width: 132px;
+  margin-left: -66px;
+  margin-top: -34px;
+
+  padding: 0;
+  border: 0;
+  background: none;
+
+  color: inherit;
+  font: inherit;
+  text-align: center;
+
+  cursor: pointer;
+}
+
+.planet:focus-visible {
+  outline: 2px solid #5b8def;
+  outline-offset: 8px;
+  border-radius: 8px;
+}
+
+.planet-dot {
+  display: block;
+
+  width: 15px;
+  height: 15px;
+  margin: 0 auto 17px;
+
+  border: 1px solid #5c6a85;
+  border-radius: 50%;
+
+  background: #46536b;
+
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s,
+    transform 0.2s;
+}
+
+.planet[data-front="true"] .planet-dot {
+  transform: scale(1.5);
+
+  border-color: #ffb3ce;
+  background: #f0709f;
+
+  box-shadow:
+    0 0 0 6px rgba(240, 112, 159, 0.18),
+    0 0 0 13px rgba(240, 112, 159, 0.07),
+    0 0 30px rgba(240, 112, 159, 0.55);
+}
+
+/* 링 위의 글씨는 반드시 읽혀야 한다.
+   배경이 밝아지는 구간에서도 읽히도록 후광을 준다. */
+
+.planet-name {
+  display: block;
+
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.19em;
+  color: #dce4f0;
+  white-space: nowrap;
+
+  text-shadow:
+    0 0 3px #070a10,
+    0 0 8px #070a10,
+    0 1px 14px rgba(7, 10, 16, 0.95);
+}
+
+.planet[data-front="true"] .planet-name {
+  color: #ffc7dc;
+  letter-spacing: 0.22em;
+}
+
+/* 행성 이름은 영어 + 한국어 (2026-09-15 결정). 한국어가 없으면
+   PROJECTS 와 EXPERIENCE 가 무엇이 다른지 한눈에 안 읽힌다. */
+.planet-ko {
+  display: block;
+  margin-top: 2px;
+
+  font-size: 11px;
+  font-weight: 600;
+  color: #aab6c8;
+  white-space: nowrap;
+
+  text-shadow:
+    0 0 3px #070a10,
+    0 0 8px #070a10;
+}
+
+.planet[data-front="true"] .planet-ko {
+  color: #ffe0ec;
+}
+
+.orbit-area:focus-within {
+  outline: none;
+}
+
+.universe-error button {
+  margin: 16px auto 0;
+}
+
+/* 배지에는 실제 개수만 쓴다. "New!" 같은 말은 개수를 감춘다. */
+.planet-badge {
+  display: inline-block;
+
+  margin-top: 7px;
+  padding: 3px 9px;
+
+  border: 1px solid rgba(70, 83, 107, 0.7);
+  border-radius: 999px;
+
+  background: rgba(13, 19, 28, 0.72);
+
+  font-size: 10px;
+  color: #93a1b8;
+  white-space: nowrap;
+}
+
+.planet[data-front="true"] .planet-badge {
+  border-color: rgba(240, 112, 159, 0.5);
+  background: rgba(240, 112, 159, 0.12);
+  color: #ffc7dc;
+}
+
+/* --------------------------------
+   들어가기 전 요약 — DESIGN.md 4d
+-------------------------------- */
+
+.orbit-panel {
+  position: relative;
+
+  width: min(1100px, 88%);
+  margin: 0 auto;
+  padding: 26px 0 4px;
+
+  border-top: 1px solid #1a2331;
+}
+
+.orbit-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+
+  margin-bottom: 20px;
+}
+
+.orbit-panel-head h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  color: #f0709f;
+}
+
+.orbit-panel-head span {
+  font-size: 13px;
+  color: #7e8ca2;
+}
+
+.orbit-panel-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr auto;
+  gap: 34px;
+  align-items: end;
+}
+
+.orbit-key {
+  margin: 0 0 10px;
+
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: #56637a;
+}
+
+.orbit-why {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.orbit-why-row {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 14px;
+  align-items: baseline;
+
+  font-size: 13px;
+}
+
+.orbit-why-row dt {
+  color: #7e8ca2;
+}
+
+.orbit-why-row dd {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  margin: 0;
+}
+
+/* 단계만 있으면 확인할 방법이 없다.
+   숫자를 항상 옆에 붙인다 (원칙 1). */
+
+.orbit-level {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.orbit-high {
+  color: #e0a458;
+}
+
+.orbit-mid {
+  color: #b4c0d2;
+}
+
+.orbit-low {
+  color: #56637a;
+}
+
+.orbit-detail {
+  font-size: 12px;
+  color: #b4c0d2;
+}
+
+.orbit-stats {
+  display: grid;
+  gap: 16px;
+}
+
+.orbit-stats .orbit-key {
+  margin-bottom: 5px;
+}
+
+.orbit-stat-value {
+  margin: 0;
+
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.orbit-stat-value small {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #7e8ca2;
+}
+
+.orbit-enter {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 15px 26px;
+
+  /* 테두리만 남긴다.
+     홈에서 채워진 버튼은 TODAY 하나여야 한다. 둘이면 위계가
+     없어지고, 열자마자 눈이 어디로 갈지 정해지지 않는다.
+     ENTER 는 "지금 보고 있는 천체로 들어간다" 는 부차적 행동이다. */
+  border: 1px solid rgba(91, 141, 239, 0.5);
+  border-radius: 14px;
+
+  background: transparent;
+  color: #a9c2f6;
+
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+
+  cursor: pointer;
+}
+
+.orbit-enter:hover {
+  background: rgba(91, 141, 239, 0.14);
+  border-color: #5b8def;
+  color: #d3e2ff;
+}
+
+.orbit-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  margin: 0;
+  padding: 22px 16px 34px;
+
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: #56637a;
+}
+
+.orbit-key-cap {
+  padding: 2px 7px;
+
+  border: 1px solid #232e3e;
+  border-radius: 5px;
+
+  font-size: 10px;
+  color: #7e8ca2;
+}
+
+.orbit-dot {
+  color: #2c3648;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planet-dot {
+    transition: none;
+  }
+}
+
+
+
+/* --------------------------------
+   하단 — 여기서 갈 수 있는 두 곳
+
+   조작 힌트만 있으면 "그래서 뭘 누르지" 가 남는다.
+   Today 는 누르는 곳, Career Agent 는 어디에 있든 옆에 있다는 안내다.
+-------------------------------- */
+
+.orbit-today {
+  width: min(1100px, 88%);
+  margin: 24px auto 0;
+}
+
+.orbit-today .orbit-card-today {
+  width: 100%;
+}
+
+.orbit-foot {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+
+  width: min(1100px, 88%);
+  margin: 26px auto 0;
+}
+
+.orbit-card {
+  position: relative;
+
+  display: grid;
+  gap: 4px;
+
+  padding: 20px 22px;
+
+  border: 1px solid #1a2331;
+  border-radius: 16px;
+
+  background: rgba(20, 28, 41, 0.6);
+
+  font: inherit;
+  color: inherit;
+  text-align: left;
+
+  cursor: pointer;
+}
+
+.orbit-card:hover {
+  border-color: rgba(91, 141, 239, 0.45);
+}
+
+/* TODAY 는 이 앱의 북극성이다 — "오늘 뭘 하면 되지?".
+   홈을 열었을 때 눈이 먼저 닿아야 하는 곳이므로, 화면에서
+   유일하게 채운 요소로 둔다. */
+.orbit-card-today {
+  padding: 24px 26px;
+
+  border-color: transparent;
+  background: #5b8def;
+  color: #06101f;
+}
+
+.orbit-card-today:hover {
+  border-color: transparent;
+  background: #7aa4f5;
+}
+
+.orbit-card-today .orbit-card-key {
+  color: rgba(6, 16, 31, 0.6);
+}
+
+.orbit-card-today strong {
+  font-size: 19px;
+}
+
+.orbit-card-today .orbit-card-sub {
+  color: rgba(6, 16, 31, 0.72);
+}
+
+.orbit-card-today .orbit-card-arrow {
+  top: 24px;
+  right: 26px;
+
+  font-size: 18px;
+  color: #06101f;
+}
+
+/* Agent 카드는 누르는 곳이 아니다. 캡슐이 따로 있다. */
+/* 한눈에 보기로 가는 링크 카드. */
+.orbit-card-flat {
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+}
+
+.orbit-card-flat:focus-visible {
+  outline: 2px solid #7fa6f5;
+  outline-offset: 3px;
+}
+
+.orbit-card-key {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: #56637a;
+}
+
+.orbit-card strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.orbit-card-sub {
+  font-size: 12px;
+  color: #7e8ca2;
+}
+
+.orbit-card-arrow,
+.orbit-card-spark {
+  position: absolute;
+  top: 20px;
+  right: 22px;
+
+  font-size: 15px;
+  color: #5b8def;
+}
+
+.orbit-card-spark {
+  color: #e0a458;
+}
+
+
+/* --------------------------------
+   좁은 화면
+
+   기본 규칙보다 뒤에 와야 한다. 미디어쿼리는 우선순위를
+   더해주지 않으므로, 앞에 두면 뒤의 기본 규칙에 덮인다.
+-------------------------------- */
+
+@media (max-width: 900px) {
+  .orbit-panel-grid {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  /* 380px 이면 궤도 맨 아래 천체가 핵심 원의 FOCUS 줄을 깔고
+     앉는다. 타원 반지름이 height/2 - 78 이라(Universe.jsx),
+     영역이 좁을수록 천체가 원 쪽으로 끌려 올라온다. 넓혀서
+     떼어놓는다. 470 이상은 반지름 상한 148 에 걸려 이득이 없다. */
+  .orbit-area {
+    height: 440px;
+  }
+
+  .core {
+    width: 176px;
+  }
+
+  /* 좁은 폭에서 원 안의 자리는 144px 뿐이다. 10px 로는
+     "FOCUS · Machine Learning" 이 잘린다. */
+  .core-focus {
+    font-size: 9px;
+  }
+}

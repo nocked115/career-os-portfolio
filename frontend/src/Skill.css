@@ -1,0 +1,58 @@
+/* --------------------------------
+   스킬 추가 (LearningPage · AddSkillForm)
+-------------------------------- */
+
+.sk-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+
+  border: 1px dashed var(--action-line);
+  border-radius: 12px;
+}
+
+.sk-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.sk-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.sk-check input {
+  accent-color: var(--action);
+}
+
+/* 경로 설명 · 목표일 (LearningPage · PathEditor) */
+.path-about {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+
+  border-radius: 10px;
+  background: var(--action-soft);
+}
+
+.path-about-edit {
+  gap: 10px;
+  background: none;
+  border: 1px dashed var(--action-line);
+}
+
+.path-about-text {
+  margin: 0;
+
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+}
