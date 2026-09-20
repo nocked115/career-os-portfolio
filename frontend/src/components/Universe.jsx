@@ -284,6 +284,12 @@ function Universe({ onEnter, onToday }) {
 
   return (
     <div className="universe">
+      {/* 첫 화면에서 제품이 무엇을 해 주는지 한 줄로. 이게 없으면 궤도와 영역 여섯 개가
+          먼저 읽혀 "기능 많은 커리어 대시보드" 가 된다. */}
+      <p className="universe-line">
+        지금 가진 시간과 쌓인 근거로 <strong>오늘 할 일 몇 가지</strong>를 골라 드려요.
+      </p>
+
       <div className="universe-stars" aria-hidden="true">
         {stars.map((star, index) => (
           <span
@@ -401,6 +407,7 @@ function Universe({ onEnter, onToday }) {
           </span>
 
           <span className="core-percent">{readiness.percent}%</span>
+          <span className="core-note">스킬 레벨 평균 · 커리어 진척도가 아니에요</span>
           <span className="core-basis">
             {readiness.skill_count > 0
               ? `${readiness.basis} ${readiness.skill_count}개 평균 숙련도`
@@ -436,7 +443,7 @@ function Universe({ onEnter, onToday }) {
           "오늘 뭘 하면 되지?" 가 스크롤 뒤에 있으면 안 된다. */}
       <div className="orbit-today">
         <button className="orbit-card orbit-card-today" onClick={onToday}>
-          <span className="orbit-card-key">오늘</span>
+          <span className="orbit-card-key">오늘 할 일 보기</span>
           {/* 개수만 보여서는 질문에 답이 안 된다. 첫 할 일을 바로 보인다. */}
           <strong>
             {data.today.first_task

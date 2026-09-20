@@ -154,3 +154,19 @@ def test_endpoint_defaults_to_this_month(client, db_session, month):
 def test_endpoint_rejects_half_a_date(client):
     assert client.get("/analytics/review?year=2026").status_code == 422
     assert client.get("/analytics/review?month=9").status_code == 422
+
+
+def test_a_month_also_records_what_was_dropped(client):
+    """할 게 많다는 느낌은 버린 것을 안 적어서 생긴다 — 덜어낸 판단도 남긴다."""
+    saved = client.put("/analytics/review/reflection?year=2026&month=9", json={
+        "rating": 4,
+        "went_well": "코테를 매일 풀었다",
+        "to_improve": "",
+        "next_focus": "공고 소스 늘리기",
+        "dropped": "데이터 엔지니어링 책은 이번 학기에 안 본다",
+    }).json()
+
+    assert saved["dropped"] == "데이터 엔지니어링 책은 이번 학기에 안 본다"
+
+    review = client.get("/analytics/review?year=2026&month=9").json()
+    assert review["reflection"]["dropped"] == "데이터 엔지니어링 책은 이번 학기에 안 본다"

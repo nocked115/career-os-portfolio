@@ -172,6 +172,7 @@ def serialize(routine, today: date) -> dict:
         ),
         "next_step": {"id": step.id, "title": step.title} if step else None,
         "active": routine.active,
+        "link_url": routine.link_url,
         "note": routine.note,
         "due_today": is_due(routine, today),
         "today_log": {"count": log.count} if log else None,
@@ -182,9 +183,25 @@ def serialize(routine, today: date) -> dict:
 
 
 def task_summary(routine) -> dict:
+    """오늘 계획 카드가 쓸 것 — 목표와 **시작하는 법**.
+
+    전에는 목표 개수만 줬다. 그래서 "시작" 을 눌러도 갈 곳이 없어 학습 화면으로 떨어졌고,
+    코테 루틴인데 늘 보던 학습 화면이 나왔다.
+    """
+    # 계획을 세운 뒤에 경로를 연결해도 바로 열 수 있게, 다음 단계는 지금 계산한다.
+    step = next_step(routine.learning_path)
     return {
+        "id": routine.id,
         "target_count": routine.target_count,
         "unit_label": routine.unit_label,
+        "link_url": routine.link_url,
+        "note": routine.note,
+        "learning_path": (
+            {"id": routine.learning_path.id, "title": routine.learning_path.title}
+            if routine.learning_path is not None
+            else None
+        ),
+        "next_step": {"id": step.id, "title": step.title} if step else None,
     }
 
 

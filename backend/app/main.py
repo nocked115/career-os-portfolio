@@ -8,6 +8,7 @@ from . import models, schemas,collector
 from .services import priority as priority_service
 from .services import learning as learning_service
 from .services import opportunity as opportunity_service
+from .services import market as market_service
 from .routers import (
     applications as applications_router,
     calendar as calendar_router,
@@ -94,6 +95,18 @@ async def lifespan(app: FastAPI):
             print("[Career OS]", seed(session))
         finally:
             session.close()
+
+    # 직무 판단 규칙이 바뀌었을 수 있다. 이미 들여온 공고를 한 번 다시 본다 —
+    # 다음 날 아침 수집을 기다리면 그때까지 영업 공고가 기회 목록 위에 남는다.
+    session = SessionLocal()
+    try:
+        fit = opportunity_service.review_fit(session)
+        if fit["filtered"] or fit["restored"]:
+            print(f"[Career OS] 직무 판단 — 보관함으로 {fit['filtered']}건, 되돌림 {fit['restored']}건")
+    except Exception as error:  # 판단이 실패해도 앱은 뜬다.
+        print(f"[Career OS] 직무 판단을 건너뜀: {error}")
+    finally:
+        session.close()
 
     start_scheduler()
 
@@ -628,7 +641,7 @@ def get_learning_priority(
     db: Session = Depends(get_db)
 ):
     return {
-        "total_demand": db.query(models.Opportunity).count(),
+        "total_demand": market_service.count_opportunities(db),
         "learning_priority": priority_service.get_learning_priority(
             db,
             include_resources=True,

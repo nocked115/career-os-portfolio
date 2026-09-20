@@ -188,6 +188,24 @@ job_skills = Table(
 # Mission 021 association tables
 # --------------------------------
 
+# 경로 하나가 여러 스킬을 키운다. Tave 논문 스터디는 PyTorch 와 Computer Vision 을 같이 키운다.
+# 대표 스킬(learning_paths.skill_id)은 남겨 둔다 — 화면이 "이 경로의 스킬" 한 줄을 쓸 때 필요하다.
+learning_path_skills = Table(
+    "learning_path_skills",
+    Base.metadata,
+    Column(
+        "learning_path_id",
+        ForeignKey("learning_paths.id"),
+        primary_key=True,
+    ),
+    Column(
+        "skill_id",
+        ForeignKey("skills.id"),
+        primary_key=True,
+    ),
+)
+
+
 learning_step_resources = Table(
     "learning_step_resources",
     Base.metadata,
@@ -343,6 +361,27 @@ class Skill(Base):
         "LearningPath",
         back_populates="skill"
     )
+
+    # 여러 스킬을 키우는 경로들 (learning_path_skills).
+    linked_paths = relationship(
+        "LearningPath",
+        secondary=learning_path_skills,
+        back_populates="skills",
+    )
+
+    @property
+    def growing_paths(self) -> list:
+        """이 스킬을 키우는 경로 전부.
+
+        대표 스킬로만 이어진 옛 경로와 여러 스킬 연결을 함께 본다. 한쪽만 보면
+        "Tave 는 PyTorch 도 키운다" 를 넣어도 학습 진행이 0 으로 남는다.
+        """
+        paths = {path.id: path for path in self.linked_paths}
+
+        for path in self.learning_paths:
+            paths.setdefault(path.id, path)
+
+        return list(paths.values())
 
     experiences = relationship(
         "Experience",
@@ -606,6 +645,12 @@ class LearningPath(Base):
     )
 
     skill = relationship("Skill", back_populates="learning_paths")
+    # 이 경로가 키우는 스킬 전부 (대표 스킬 포함). 학습 진행이 이 스킬들의 증거가 된다.
+    skills = relationship(
+        "Skill",
+        secondary=learning_path_skills,
+        back_populates="linked_paths",
+    )
     steps = relationship(
         "LearningStep",
         back_populates="learning_path",
@@ -655,6 +700,12 @@ class LearningStep(Base):
         order_by="LearningChecklistItem.position",
         cascade="all, delete-orphan",
     )
+    outputs = relationship(
+        "LearningStepOutput",
+        back_populates="learning_step",
+        order_by="LearningStepOutput.id",
+        cascade="all, delete-orphan",
+    )
 
 
 class LearningChecklistItem(Base):
@@ -691,9 +742,54 @@ class LearningChecklistItem(Base):
     learning_step = relationship("LearningStep", back_populates="checklist")
 
 
+class LearningStepOutput(Base):
+    """이 단계에서 **내가 만든 것** — 요약 노트 · 발표 자료 · 코드.
+
+    체크 항목은 "했다" 를 세고, 이건 "남은 것" 을 가리킨다. 공부한 흔적이
+    앱 밖에만 있으면 나중에 경험으로 꺼낼 수 없다.
+
+    파일은 저장하지 않는다. 서버에 디스크가 없고, 파일을 받기 시작하면
+    백업 · 용량 · 공개 범위가 전부 딸려온다. 주소(노션 · 깃허브 · 드라이브)만 둔다.
+    """
+
+    __tablename__ = "learning_step_outputs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    learning_step_id = Column(
+        Integer,
+        ForeignKey("learning_steps.id"),
+        nullable=False,
+        index=True,
+    )
+    title = Column(String, nullable=False)
+    url = Column(String, default="", nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    learning_step = relationship("LearningStep", back_populates="outputs")
+
+
 # --------------------------------
 # Source-independent opportunities
 # --------------------------------
+
+class DismissedPosting(Base):
+    """사람이 휴지통으로 지운 수집 공고의 번호.
+
+    지운 공고는 목록 어디에도 남기지 않는다. 그런데 번호까지 잊으면 다음 날 아침 수집이
+    같은 공고를 다시 들인다 — 지워도 돌아오는 휴지통이 된다. 그래서 출처와 번호만 남긴다.
+    제목 · 회사 · 설명은 남기지 않는다.
+    """
+
+    __tablename__ = "dismissed_postings"
+    __table_args__ = (
+        UniqueConstraint("source", "source_external_id", name="uq_dismissed_posting"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    source = Column(String, nullable=False)
+    source_external_id = Column(String, nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
 
 class Opportunity(Base):
     __tablename__ = "opportunities"
@@ -737,6 +833,12 @@ class Opportunity(Base):
     # 마감까지 남은 날짜만으로는 "할 수 있는가" 를 판단할 수 없다.
     # 40시간짜리를 5일 안에 끝내는 것과 4시간짜리를 5일 안에 끝내는 것은 다르다.
     estimated_hours = Column(Integer, nullable=True)
+
+    # 직무가 맞지 않아 자동으로 뺀 이유 (services/job_fit.py). 비어 있으면 뺀 게 아니다.
+    # 뺀 기회는 보관함으로 가고, 스킬 수요에 세지 않는다.
+    filtered_reason = Column(String, default="", server_default="", nullable=False)
+    # 사람이 "그래도 검토" 로 되살렸다. 다시 자동으로 빼지 않는다.
+    keep_anyway = Column(Boolean, default=False, server_default="0", nullable=False)
 
     # Mission 023: 매칭 점수. 계산은 services/opportunity.py 가 한다.
     match_score = Column(Float, nullable=True)
@@ -788,6 +890,10 @@ class DailyPlanTask(Base):
     # 다시 받아야 하고, 실제와 다른 숫자가 화면에 나온다.
     plan_available_minutes = Column(Integer, nullable=True)
     plan_intensity = Column(String, nullable=True)
+
+    # 이 계획을 세울 때 우선순위 1위였던 스킬. 지금 1위와 다르면 계획이 낡은 것이다 —
+    # 세운 뒤 공고가 들어와 1위가 바뀌었는데, 할 일의 이유는 옛 1위를 말하고 있었다.
+    plan_focus_skill = Column(String, nullable=True)
 
     learning_step_id = Column(
         Integer, ForeignKey("learning_steps.id"), nullable=True
@@ -854,6 +960,10 @@ class Routine(Base):
         Integer, ForeignKey("learning_paths.id"), nullable=True
     )
     active = Column(Boolean, default=True, nullable=False)
+
+    # 시작하는 곳 (예: 프로그래머스 문제 목록). 오늘 계획에서 "시작" 을 누르면 여기로 연다.
+    # 없으면 학습 화면으로 보내지 않고, 적어 둔 메모로 시작하는 방법을 보여준다.
+    link_url = Column(String, default="", server_default="", nullable=False)
     note = Column(Text, default="", nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -891,6 +1001,9 @@ class MonthlyReflection(Base):
     went_well = Column(Text, default="", nullable=False)
     to_improve = Column(Text, default="", nullable=False)
     next_focus = Column(Text, default="", nullable=False)
+    # 이번 달에 **안 하기로** 한 것. 할 게 많다는 느낌은 대개 버린 것을 안 적어서 생긴다.
+    # 한 일과 못 한 일만 세면, 덜어낸 판단은 아무 데도 안 남는다.
+    dropped = Column(Text, default="", server_default="", nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime,
@@ -978,6 +1091,13 @@ class Experience(Base):
     project_id = Column(
         Integer,
         ForeignKey("projects.id"),
+        nullable=True,
+        unique=True,
+    )
+    # 이 경험이 어느 학습 단계에서 나왔는가. 같은 단계를 두 번 보내지 않는다.
+    learning_step_id = Column(
+        Integer,
+        ForeignKey("learning_steps.id"),
         nullable=True,
         unique=True,
     )

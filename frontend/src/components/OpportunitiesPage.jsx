@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import * as api from "../api"
 import { externalHref } from "../safeUrl"
+import { useReadOnly } from "../readOnly"
 import OpportunityMap from "./OpportunityMap"
 import {
   Button,
@@ -143,11 +144,50 @@ function PasteImport({ working, onSave, onCancel, onError }) {
   const [preview, setPreview] = useState(null)
   const [draft, setDraft] = useState(null)
   const [busy, setBusy] = useState(false)
+  /* 알림 메일 하나에 공고가 여러 건 들어 있다. 사이트를 긁는 대신(약관) 메일을 통째로
+     붙여넣고 건별로 나눠 본다. 한 건씩 미리보기를 확인하고 넣는다 — 규칙으로 뽑은 값이라
+     사람이 한 번은 봐야 한다. */
+  const [queue, setQueue] = useState([])
+  const [at, setAt] = useState(0)
 
-  const analyze = async () => {
+  const analyzeText = async (body, link = "") => {
+    const result = await api.opportunities.parse(body, link)
+    setPreview(result)
+    setDraft({
+      title: result.title.value,
+      organization: result.organization.value,
+      opportunity_type: result.opportunity_type.value,
+      employment_type: result.employment_type.value,
+      location: result.location.value,
+      deadline_date: result.deadline.value ? result.deadline.value.slice(0, 10) : "",
+      deadline_time: result.deadline.value ? result.deadline.value.slice(11, 16) : "23:59",
+      estimated_hours: ""
+    })
+  }
+
+  // 다음 건으로. 남은 게 없으면 붙여넣기 화면을 닫는다.
+  const advance = async (nextIndex) => {
+    if (nextIndex >= queue.length) return onCancel()
+    setAt(nextIndex)
+    setText(queue[nextIndex])
+    setUrl("")
+    setPreview(null)
     try {
       setBusy(true)
-      const result = await api.opportunities.parse(text, url)
+      await analyzeText(queue[nextIndex])
+    } catch (failure) {
+      onError(failure?.detail || "공고 글을 분석하지 못했습니다.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ③ 주소 넣기 — 공식 API 도 허용된 소스도 아닌 곳은 여기로 들어온다.
+  const fetchFromUrl = async () => {
+    try {
+      setBusy(true)
+      const result = await api.opportunities.fetchUrl(url.trim())
+      setText(result.text || "")
       setPreview(result)
       setDraft({
         title: result.title.value,
@@ -159,6 +199,28 @@ function PasteImport({ working, onSave, onCancel, onError }) {
         deadline_time: result.deadline.value ? result.deadline.value.slice(11, 16) : "23:59",
         estimated_hours: ""
       })
+    } catch (failure) {
+      onError(failure?.detail || "공고 주소를 가져오지 못했어요. 본문을 복사해 붙여넣어 주세요.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const analyze = async () => {
+    try {
+      setBusy(true)
+
+      // 여러 건이면 잘라서 첫 건부터 본다.
+      const split = await api.opportunities.split(text)
+      if (split.count > 1) {
+        setQueue(split.blocks)
+        setAt(0)
+        setText(split.blocks[0])
+        await analyzeText(split.blocks[0])
+        return
+      }
+
+      await analyzeText(text, url)
     } catch (failure) {
       console.error("Failed to parse posting:", failure)
       onError(failure?.detail || "공고 글을 분석하지 못했습니다.")
@@ -177,14 +239,14 @@ function PasteImport({ working, onSave, onCancel, onError }) {
           <textarea
             className="learn-textarea opp-paste-text"
             rows={10}
-            placeholder="공고 페이지에서 본문을 전체 선택(⌘A)해 복사(⌘C)한 뒤 여기에 붙여넣으세요."
+            placeholder="공고 본문을 붙여넣으세요. 맞춤 공고 알림 메일을 통째로 넣으면 건별로 나눠 드려요."
             value={text}
             onChange={(event) => setText(event.target.value)}
           />
         </label>
 
         <label className="learn-field">
-          <span>공고 링크 (선택)</span>
+          <span>공고 주소 — 넣고 &lsquo;주소로 가져오기&rsquo; 를 누르면 본문을 받아 옵니다</span>
           <input
             className="agent-input"
             placeholder="https://…"
@@ -194,13 +256,17 @@ function PasteImport({ working, onSave, onCancel, onError }) {
         </label>
 
         <p className="muted form-hint">
-          앱은 링크를 열지 않고 저장만 합니다. 채용 사이트 대부분이 자동 수집을 약관으로
-          막기 때문에, 직접 읽은 글만 다룹니다.
+          주소만 있으면 <strong>가져오기</strong>를 누르세요. 그 사이트가 robots.txt 로 자동
+          접근을 막아 뒀거나 화면을 그려야 보이는 공고면, 이유를 말하고 붙여넣기로 넘어갑니다.
+          목록을 훑지 않고 이 주소 한 건만 가져옵니다.
         </p>
 
         <div className="ui-row">
           <Button disabled={busy || !text.trim()} onClick={analyze}>
             {busy ? "분석하는 중…" : "분석하기"}
+          </Button>
+          <Button variant="secondary" disabled={busy || !url.trim()} onClick={fetchFromUrl}>
+            {busy ? "가져오는 중…" : "주소로 가져오기"}
           </Button>
           <Button variant="quiet" onClick={onCancel}>
             취소
@@ -210,8 +276,19 @@ function PasteImport({ working, onSave, onCancel, onError }) {
     )
   }
 
+  const total = queue.length
+  const more = total > 0 && at + 1 < total
+
   return (
     <div className="opp-paste">
+      {total > 1 && (
+        <div className="ui-row opp-queue">
+          <StatusBadge tone="action">{total}건 중 {at + 1}번째</StatusBadge>
+          <Button variant="quiet" disabled={busy || working} onClick={() => advance(at + 1)}>
+            이 건 건너뛰기
+          </Button>
+        </div>
+      )}
       <p className="opp-block-title">미리보기 — 틀린 칸은 고친 뒤 저장하세요</p>
 
       {preview.requirement_flags.length > 0 && (
@@ -356,8 +433,8 @@ function PasteImport({ working, onSave, onCancel, onError }) {
         <Button
           writes
           disabled={working || !draft.title.trim()}
-          onClick={() =>
-            onSave({
+          onClick={async () => {
+            await onSave({
               opportunity_type: draft.opportunity_type,
               title: draft.title.trim(),
               organization: draft.organization.trim(),
@@ -370,10 +447,11 @@ function PasteImport({ working, onSave, onCancel, onError }) {
                 ? `${draft.deadline_date}T${draft.deadline_time || "23:59"}:00`
                 : null,
               estimated_hours: draft.estimated_hours ? Number(draft.estimated_hours) : null
-            })
-          }
+            }, total > 0)
+            if (total > 0) await advance(at + 1)
+          }}
         >
-          이대로 저장
+          {more ? "저장하고 다음 건" : "이대로 저장"}
         </Button>
         <Button variant="secondary" onClick={() => setPreview(null)}>
           본문 다시 고치기
@@ -388,7 +466,41 @@ function PasteImport({ working, onSave, onCancel, onError }) {
 
 /* ---------- 목록 · 상세 ---------- */
 
-function OpportunityRow({ match, selected, onSelect }) {
+/* 휴지통 — 누르면 바로 지운다. 보관함에도 남기지 않는다.
+   지원서가 달린 공고는 지우지 않는다(지원 기록은 정리 대상이 아니다) — 버튼을 두지 않는다. */
+function TrashButton({ match, working, onTrash }) {
+  if (match.application) return null
+
+  return (
+    <button
+      type="button"
+      className="opp-trash"
+      disabled={working}
+      onClick={onTrash}
+      aria-label={`'${match.title}' 삭제`}
+      title="삭제 — 보관함에 남기지 않고 바로 지워요"
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
+        stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 7h16" />
+        <path d="M9 7V4.5h6V7" />
+        <path d="M6.5 7l1 12.5h9l1-12.5" />
+        <path d="M10 11v5.5M14 11v5.5" />
+      </svg>
+    </button>
+  )
+}
+
+function OpportunityRow({ match, selected, onSelect, working, readOnly, onTrash }) {
+  return (
+    <div className="opp-row-wrap">
+      <OpportunityRowCard match={match} selected={selected} onSelect={onSelect} />
+      {!readOnly && <TrashButton match={match} working={working} onTrash={onTrash} />}
+    </div>
+  )
+}
+
+function OpportunityRowCard({ match, selected, onSelect }) {
   const verdict = VERDICT[match.recommendation] ?? VERDICT.skip
   const archived = match.lane === "archived"
 
@@ -405,7 +517,9 @@ function OpportunityRow({ match, selected, onSelect }) {
         </span>
         <strong>{match.title}</strong>
         <span className="muted">
-          {match.organization || "기관 미상"} · {TYPE_LABELS[match.opportunity_type] ?? "기회"}
+          {match.organization || "기관 미상"}
+          {/* 여러 부문을 뽑는 공채는 제목만으로 내 자리를 모른다 — 맞는 부문을 적는다. */}
+          {match.role ? ` · ${match.role}` : ` · ${TYPE_LABELS[match.opportunity_type] ?? "기회"}`}
         </span>
         <span className="opp-row-badges">
           {match.application && (
@@ -439,7 +553,7 @@ function OpportunityRow({ match, selected, onSelect }) {
   )
 }
 
-function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, onStatus, onRemove }) {
+function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, onStatus, onRemove, onKeep }) {
   const verdict = VERDICT[match.recommendation] ?? VERDICT.skip
   const href = externalHref(match.source_url)
   const parked = match.lane === "on_hold" || match.lane === "not_interested"
@@ -457,13 +571,27 @@ function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, o
             {match.organization || "기관 미상"}
             {SOURCE_LABELS[match.source] && <> · 출처 {SOURCE_LABELS[match.source]}</>}
           </p>
+          {match.role && <p className="muted opp-meta">맞는 부문 · {match.role}</p>}
         </div>
 
         <div className="opp-score-box">
           <strong>{match.match_score}</strong>
           <span>/ 100 매칭</span>
+          {/* 숫자만 크게 두면 어디서 나온 값인지 알 수 없다. 구성을 접지 않고 바로 붙인다. */}
+          <small className="opp-score-parts">
+            {BREAKDOWN.map(
+              ([key, label]) => `${label.split(" — ")[0]} ${match.breakdown[key]}`
+            ).join(" + ")}
+          </small>
         </div>
       </div>
+
+      {match.filtered_reason && (
+        <Notice tone="warn">
+          직무가 달라 자동으로 보관함에 넣었어요 — {match.filtered_reason}. 잘못 뺐으면 아래
+          &lsquo;그래도 검토하기&rsquo;를 누르세요.
+        </Notice>
+      )}
 
       <div className="ui-row">
         <StatusBadge tone={verdict.tone}>{verdict.label}</StatusBadge>
@@ -542,8 +670,8 @@ function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, o
         </div>
       </div>
 
-      <details className="opp-breakdown-box">
-        <summary>매칭 점수 구성 보기</summary>
+      <details className="opp-breakdown-box" open>
+        <summary>매칭 점수는 어떻게 나왔나</summary>
         <ul>
           {BREAKDOWN.map(([key, label, max]) => (
             <li key={key}>
@@ -551,7 +679,10 @@ function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, o
             </li>
           ))}
         </ul>
-        <p className="form-hint">네 칸의 합이 매칭 점수예요. 70 이상이면 할 만함, 40 이상이면 고려.</p>
+        <p className="form-hint">
+          네 칸의 합이 매칭 점수예요. 70 이상이면 할 만함, 40 이상이면 고려. 관련성과 준비도는
+          <strong> 내가 모아 둔 기회</strong>와 등록한 스킬에서만 계산합니다 — 채용 시장 전체가 아니에요.
+        </p>
       </details>
 
       <div className="opp-block">
@@ -573,6 +704,12 @@ function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, o
         <div className="ui-row">
           {archived ? (
             <>
+              {/* 직무가 달라 자동으로 뺀 것 — 규칙이 틀렸으면 사람이 되살린다. 다시 자동으로 빼지 않는다. */}
+              {match.filtered_reason && (
+                <Button variant="secondary" writes disabled={working} onClick={onKeep}>
+                  그래도 검토하기
+                </Button>
+              )}
               {/* 직접 닫은 것만 되돌릴 수 있다. 마감 지남 · 지원서 철회는 되돌려도 다시 보관함으로 온다. */}
               {match.archive_reason === "직접 닫음" && (
                 <Button variant="secondary" writes disabled={working} onClick={() => onStatus("interested")}>
@@ -643,6 +780,7 @@ function OpportunitiesPage() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
   const [working, setWorking] = useState(false)
+  const readOnly = useReadOnly()
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
 
@@ -694,13 +832,15 @@ function OpportunitiesPage() {
       return "연결된 수집원에서 가져왔어요."
     }, "수집하지 못했습니다.")
 
-  const savePosting = (body) =>
+  const savePosting = (body, keepOpen = false) =>
     run(async () => {
       const created = await api.opportunities.create(body)
-      setShowImport(false)
-      setView("review")
-      setTab("all")
-      setSelectedId(created.id)
+      if (!keepOpen) {
+        setShowImport(false)
+        setView("review")
+        setTab("all")
+        setSelectedId(created.id)
+      }
 
       return created.skills.length > 0
         ? `'${created.title}' 을(를) 저장했어요. 연결한 스킬 · ${created.skills.map((skill) => skill.name).join(" · ")}`
@@ -741,11 +881,17 @@ function OpportunitiesPage() {
       return `'${match.title}' 을(를) 다시 검토 목록에 올렸어요.`
     }, "상태를 바꾸지 못했습니다.")
 
+  const keepOpportunity = (match) =>
+    run(async () => {
+      await api.opportunities.keep(match.opportunity_id)
+      return `'${match.title}' 을(를) 검토 목록에 올렸어요. 다시 자동으로 빼지 않아요.`
+    }, "되살리지 못했습니다.")
+
   const removeOpportunity = (match) =>
     run(async () => {
       await api.opportunities.remove(match.opportunity_id)
-      setSelectedId(null)
-      return `'${match.title}' 을(를) 완전히 삭제했어요.`
+      setSelectedId((current) => (current === match.opportunity_id ? null : current))
+      return `'${match.title}' 을(를) 삭제했어요. 다음 수집 때도 다시 들이지 않아요.`
     }, "기회를 삭제하지 못했습니다.")
 
   if (loading) {
@@ -946,6 +1092,9 @@ function OpportunitiesPage() {
                   match={match}
                   selected={selected?.opportunity_id === match.opportunity_id}
                   onSelect={() => setSelectedId(match.opportunity_id)}
+                  working={working}
+                  readOnly={readOnly}
+                  onTrash={() => removeOpportunity(match)}
                 />
               ))}
 
@@ -964,6 +1113,9 @@ function OpportunitiesPage() {
                       match={match}
                       selected={selected?.opportunity_id === match.opportunity_id}
                       onSelect={() => setSelectedId(match.opportunity_id)}
+                      working={working}
+                      readOnly={readOnly}
+                      onTrash={() => removeOpportunity(match)}
                     />
                   ))}
                 </div>
@@ -980,6 +1132,7 @@ function OpportunitiesPage() {
                   onAddToPlan={() => addToPlan(selected)}
                   onStatus={(status) => setStatus(selected, status)}
                   onRemove={() => removeOpportunity(selected)}
+                  onKeep={() => keepOpportunity(selected)}
                 />
               )}
             </div>

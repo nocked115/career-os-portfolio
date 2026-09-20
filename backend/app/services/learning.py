@@ -10,6 +10,8 @@ Mission 022 부터는 스텝이 바뀔 때마다 여기서 다시 계산하고,
 
 from .. import models
 from . import checklist as checklist_service
+from . import market as market_service
+from . import step_output as step_output_service
 
 
 COMPLETED = "completed"
@@ -139,7 +141,7 @@ def build_why_now(db, skill):
         return None
 
     # 모수는 Opportunity 하나다 (priority.build_skill_priorities 와 같은 기준).
-    total_demand = db.query(models.Opportunity).count()
+    total_demand = market_service.count_opportunities(db)
     demand_requiring = len(skill.opportunities)
 
     reasons = []
@@ -242,6 +244,9 @@ def build_session(db, step) -> dict:
         # 오늘 볼 것과 치운 것.
         # 치운 것을 숨기면 선별했다는 증거가 사라진다.
         "selection": selection,
+
+        # 이 단계에서 내가 만든 것과, 이미 경험으로 넘겼는지.
+        **step_output_service.session_summary(db, step),
     }
 
 
@@ -256,7 +261,7 @@ def find_next_step(skill):
 
     candidates = [
         step
-        for path in skill.learning_paths
+        for path in skill.growing_paths
         for step in path.steps
         if step.status != COMPLETED
     ]

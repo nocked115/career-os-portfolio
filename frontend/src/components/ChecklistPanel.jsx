@@ -2,6 +2,7 @@ import { useState } from "react"
 import * as api from "../api"
 import { Button, EmptyState, Notice, ProgressBar, StatusBadge } from "./ui"
 import { useReadOnly } from "../readOnly"
+import { STATIC_DEMO } from "../api"
 import "../Checklist.css"
 
 /* 학습 단계 체크리스트.
@@ -520,7 +521,7 @@ export default function ChecklistPanel({
                   <input
                     type="checkbox"
                     checked={item.done}
-                    disabled={readOnly || pendingId === item.id}
+                    disabled={(readOnly && !STATIC_DEMO) || pendingId === item.id}
                     onChange={() => toggle(item)}
                   />
                   <span className="ck-text">

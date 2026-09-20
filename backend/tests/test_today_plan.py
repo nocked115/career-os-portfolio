@@ -885,3 +885,34 @@ def test_a_known_length_beats_an_unknown_one(db_session):
 
     assert candidate["title"] == "27분짜리"
     assert candidate["minutes"] == 27
+
+
+def test_school_deadlines_show_in_the_band(client, db_session):
+    """캡스톤 목표일 · 발표 주차도 "오늘 뭐가 급한가" 에 뜬다. 계획에는 두 번 앉지 않는다."""
+    from datetime import date, timedelta
+
+    from app import models
+
+    soon = date.today() + timedelta(days=2)
+    project = models.Project(
+        name="캡스톤", status="in_progress", career_related=True,
+        target_date=soon.isoformat(), daily_minutes=30,
+    )
+    path = models.LearningPath(title="Tave 논문 스터디")
+    db_session.add_all([project, path])
+    db_session.flush()
+    db_session.add(models.LearningStep(
+        learning_path_id=path.id, title="3주차 발표", position=0,
+        estimated_minutes=60, due_date=soon,
+    ))
+    db_session.commit()
+
+    band = client.get("/today/deadlines").json()["deadlines"]
+    kinds = {item["kind"]: item["title"] for item in band}
+
+    assert kinds["project"] == "캡스톤"
+    assert kinds["learning_step"] == "3주차 발표"
+
+    plan = client.post("/today/plan?available_minutes=300&intensity=normal").json()
+    titles = [task["title"] for task in plan["tasks"]]
+    assert len([t for t in titles if "3주차 발표" in t]) <= 1

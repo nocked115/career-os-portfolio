@@ -310,6 +310,84 @@ def _kind(text: str) -> dict:
 # 전체
 # --------------------------------
 
+# 한 번에 여러 건을 붙여넣을 때 — 사람인 · 잡코리아의 맞춤 공고 알림 메일에는
+# 공고가 대여섯 건씩 들어 있다. 사이트를 긁는 대신(약관 금지), 사람이 받은 메일을
+# 통째로 붙여넣고 앱이 건별로 잘라 준다.
+#
+# 자르는 규칙은 둘뿐이다. 설명할 수 있는 것만 쓴다.
+#   1. 빈 줄 두 개 이상, 또는 ---- 같은 구분선
+#   2. 주소(http) 줄 — 한 공고는 대개 링크로 끝난다. 링크 뒤 새 줄부터 다음 건
+SPLIT_LINE = re.compile(r"^[-=*_·]{3,}$")
+URL_LINE = re.compile(r"https?://\S+")
+
+# 줄이 이보다 적은 토막은 공고가 아니라 머리말 · 꼬리말로 본다.
+MIN_BLOCK_LINES = 2
+
+
+def _chunks(text: str) -> list[list[str]]:
+    """빈 줄과 구분선으로 1차로 자른다."""
+    chunks, current = [], []
+
+    for raw in text.splitlines():
+        line = raw.rstrip()
+
+        if not line.strip() or SPLIT_LINE.match(line.strip()):
+            if current:
+                chunks.append(current)
+                current = []
+            continue
+
+        current.append(line)
+
+    if current:
+        chunks.append(current)
+
+    return chunks
+
+
+def _split_at_links(lines: list[str]) -> list[list[str]]:
+    """한 토막 안에 공고가 붙어 있으면 주소 줄에서 자른다 — 한 공고는 대개 링크로 끝난다."""
+    blocks, current, closed = [], [], False
+
+    for line in lines:
+        if closed and not URL_LINE.search(line):
+            blocks.append(current)
+            current, closed = [], False
+
+        current.append(line)
+
+        if URL_LINE.search(line):
+            closed = True
+
+    if current:
+        blocks.append(current)
+
+    return blocks
+
+
+def split_postings(text: str) -> list[str]:
+    """붙여넣은 글을 공고 단위로 자른다. 여러 건으로 볼 수 없으면 [] 를 돌려준다.
+
+    여러 건으로 보는 조건은 하나다 — **링크가 있는 토막이 둘 이상**. 공고 본문 하나를
+    통째로 붙여넣으면 빈 줄이 많아도 링크는 한두 개뿐이라 한 건으로 남는다.
+    메일 알림은 공고마다 링크가 따로 붙어 있어 건별로 갈린다.
+    """
+    if not text or not text.strip():
+        return []
+
+    blocks = [
+        block
+        for chunk in _chunks(text)
+        for block in _split_at_links(chunk)
+        if len(block) >= MIN_BLOCK_LINES
+    ]
+
+    # 머리말 · 꼬리말(링크 없는 토막)은 공고로 치지 않는다.
+    with_links = ["\n".join(block) for block in blocks if any(URL_LINE.search(l) for l in block)]
+
+    return with_links if len(with_links) > 1 else []
+
+
 def parse_posting(db, text: str, url: str = "", today: date | None = None) -> dict:
     today = today or date.today()
     text = text or ""

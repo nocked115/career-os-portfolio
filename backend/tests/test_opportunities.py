@@ -150,7 +150,22 @@ def test_match_without_skills_says_it_cannot_judge(client):
     match = client.get(f"/opportunities/{opportunity['id']}/match").json()
 
     assert match["skills_required"] == 0
-    assert "판단할 수 없습니다" in " ".join(match["reasons"])
+    assert "찾지 못해" in " ".join(match["reasons"])
+    # 모르는 것을 0 으로 치지 않는다 — 조선해양 데이터 사이언티스트가 10점으로 맨 아래 있었다.
+    assert match["breakdown"]["relevance"] == 20
+    assert match["breakdown"]["readiness"] == 15
+
+
+def test_one_found_skill_is_not_full_readiness(client):
+    # 공고에서 스킬 하나만 뽑혔다고 "다 갖췄다" 로 보지 않는다 (건강식품 영업 88점).
+    made = _skills(client, [("Data Analysis", 2)])
+    one = _make_opportunity(client, deadline=_in_days(40))
+    client.post(f"/opportunities/{one['id']}/skills/{made['Data Analysis']['id']}")
+
+    match = client.get(f"/opportunities/{one['id']}/match").json()
+
+    assert (match["skills_i_have"], match["skills_required"]) == (1, 1)
+    assert match["breakdown"]["readiness"] == 20  # 30 * 2/3
 
 
 def test_breakdown_adds_up_to_the_score(client):

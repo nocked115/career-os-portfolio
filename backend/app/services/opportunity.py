@@ -24,6 +24,9 @@ WEIGHT_READINESS = 30      # 지금 지원/도전할 만한 준비가 됐는가
 WEIGHT_PORTFOLIO = 15      # 포트폴리오 증거가 되는가
 WEIGHT_DEADLINE = 15       # 마감까지 현실적인가
 
+# 공고에서 스킬을 못 찾았을 때 관련성 · 준비도. 모르는 것을 0 으로 치지 않는다.
+UNKNOWN_SKILL_VALUE = 0.5
+
 RECOMMEND_THRESHOLD = 70
 CONSIDER_THRESHOLD = 40
 
@@ -217,6 +220,28 @@ def save_opportunity(db, normalized: dict):
     return opportunity, created
 
 
+def is_dismissed(db, source, external_id) -> bool:
+    if not external_id:
+        return False
+    return (
+        db.query(models.DismissedPosting)
+        .filter_by(source=source, source_external_id=str(external_id))
+        .first()
+        is not None
+    )
+
+
+def dismiss(db, opportunity) -> None:
+    """휴지통 — 수집 공고면 번호만 남겨 다시 들이지 않게 한다. 지우는 것은 부르는 쪽이 한다."""
+    if opportunity.source_external_id and not is_dismissed(
+        db, opportunity.source, opportunity.source_external_id
+    ):
+        db.add(models.DismissedPosting(
+            source=opportunity.source,
+            source_external_id=str(opportunity.source_external_id),
+        ))
+
+
 def collect_from(db, collector) -> dict:
     """수집원 하나를 실행한다."""
     try:
@@ -243,6 +268,11 @@ def collect_from(db, collector) -> dict:
             skipped += 1
             continue
 
+        # 휴지통으로 지운 공고는 다시 들이지 않는다.
+        if is_dismissed(db, normalized["source"], normalized.get("source_external_id")):
+            skipped += 1
+            continue
+
         _, was_created = save_opportunity(db, normalized)
 
         if was_created:
@@ -260,6 +290,73 @@ def collect_from(db, collector) -> dict:
     }
 
 
+# 모집 부문을 읽어 직무를 판단할 수 있는 수집원. 부문이 없는 공고는 판단하지 않는다.
+FIT_SOURCES = ("work24",)
+
+
+def review_fit(db) -> dict:
+    """이미 들여온 공고를 다시 판단한다 — 데이터 · AI 직무가 아니면 보관함으로.
+
+    수집 규칙을 고쳐도 전에 들어온 공고는 그대로 남는다. 실제로 났다 — 건강식품 온라인 영업이
+    88점으로 기회 목록 위쪽에 있었다. 그래서 저장된 설명의 모집 부문을 다시 읽어 판단한다.
+
+    건드리지 않는 것
+      - 지원서가 있는 공고 — 이미 사람이 판단했다
+      - "그래도 검토" 로 되살린 공고 (keep_anyway)
+
+    뺀 공고는 스킬 연결을 끊는다. 안 그러면 영업 공고가 "데이터 분석" 수요로 세어진다.
+    다시 맞다고 판단되면 스킬을 다시 잇는다.
+    """
+    from . import job_fit
+
+    filtered = restored = 0
+
+    rows = (
+        db.query(models.Opportunity)
+        .filter(
+            models.Opportunity.source.in_(FIT_SOURCES),
+            models.Opportunity.opportunity_type == "job",
+            models.Opportunity.keep_anyway.is_(False),
+        )
+        .all()
+    )
+
+    for opportunity in rows:
+        if opportunity.applications:
+            continue
+
+        sections = job_fit.parse_sections(opportunity.description)
+        if not sections:
+            continue
+
+        judged = job_fit.judge_sections(sections)
+
+        if not judged["fits"]:
+            if opportunity.filtered_reason != judged["reason"]:
+                if not opportunity.filtered_reason:
+                    filtered += 1
+                opportunity.filtered_reason = judged["reason"]
+            opportunity.skills = []
+        elif opportunity.filtered_reason:
+            opportunity.filtered_reason = ""
+            link_skills(db, opportunity)
+            restored += 1
+
+    db.commit()
+
+    return {"filtered": filtered, "restored": restored}
+
+
+def keep_anyway(db, opportunity):
+    """자동으로 뺀 공고를 사람이 되살린다. 다시 자동으로 빼지 않는다."""
+    opportunity.keep_anyway = True
+    opportunity.filtered_reason = ""
+    link_skills(db, opportunity)
+    db.commit()
+    db.refresh(opportunity)
+    return opportunity
+
+
 def collect_all(db) -> dict:
     """사용 가능한 모든 수집원을 실행한다."""
     results = [
@@ -267,7 +364,11 @@ def collect_all(db) -> dict:
         for collector in collectors.available_collectors()
     ]
 
+    # 새로 들어온 것과 이미 있던 것을 같은 규칙으로 다시 본다.
+    fit = review_fit(db)
+
     return {
+        "fit": fit,
         "sources": results,
         "fetched": sum(r["fetched"] for r in results),
         "created": sum(r["created"] for r in results),
@@ -320,13 +421,21 @@ def _relevance(opportunity, priority_by_skill_id, top_score):
 
 
 def _readiness(opportunity):
-    """요구 스킬 중 이미 보유한 비율."""
+    """요구 스킬 중 이미 보유한 비율 — 찾은 스킬이 적을수록 100% 로 단정하지 않는다.
+
+    전에는 보유 수 / 요구 수 그대로였다. 공고에서 "데이터 분석" 하나만 뽑혀도 1/1 = 100%
+    라서, 건강식품 온라인 영업이 "요구 스킬을 다 갖췄다" 로 88점이 됐다. 스킬 하나로는
+    준비됐다고 말할 근거가 약하다. 그래서 가진 것 하나 · 없는 것 하나를 미리 깔고 센다
+    (보유+1)/(요구+2): 1/1 → 67%, 3/3 → 80%, 6/6 → 88%. 많이 찾을수록 실제 비율에 가까워진다.
+    화면의 "요구 스킬 N개 중 M개" 는 실제 수 그대로다.
+    """
     if not opportunity.skills:
         return 0.0, 0, 0
 
     have = sum(1 for skill in opportunity.skills if (skill.level or 0) > 0)
+    required = len(opportunity.skills)
 
-    return have / len(opportunity.skills), have, len(opportunity.skills)
+    return (have + 1) / (required + 2), have, required
 
 
 def _portfolio_value(opportunity, priority_by_skill_id):
@@ -440,6 +549,10 @@ def lane_of(opportunity, application, days_left):
     if application is not None:
         return "applied", None
 
+    # 직무가 맞지 않아 자동으로 뺀 공고. "그래도 검토" 로 되살릴 수 있다.
+    if opportunity.filtered_reason:
+        return "archived", "직무가 달라 자동으로 뺌"
+
     if days_left is not None and days_left < 0:
         return "archived", "지난 행사" if opportunity.opportunity_type == "job_event" else "마감 지남"
 
@@ -479,6 +592,14 @@ def build_match(db, opportunity, priority_entries=None) -> dict:
         opportunity, priority_by_skill_id, top_score
     )
     readiness, have, required = _readiness(opportunity)
+
+    # 공고에서 스킬을 하나도 못 찾았으면 "요구 스킬이 없다" 가 아니라 "모른다" 다.
+    # 실제로 났다 — 조선해양 "데이터 사이언티스트" 부문은 설명이 "상세 모집요강 참조" 뿐이라
+    # 스킬이 안 뽑혀 10점으로 맨 아래에 있었다. 마감일을 모를 때(0.5)처럼 중간값으로 둔다.
+    if not opportunity.skills:
+        relevance = UNKNOWN_SKILL_VALUE
+        readiness = UNKNOWN_SKILL_VALUE
+
     portfolio = _portfolio_value(opportunity, priority_by_skill_id)
 
     days_left = days_until(opportunity.deadline)
@@ -530,6 +651,10 @@ def build_match(db, opportunity, priority_entries=None) -> dict:
         "source_url": opportunity.source_url,
         # 사람인 약관이 출처 표시를 요구한다. 화면이 이걸 보고 붙인다.
         "source": opportunity.source,
+        # 여러 부문을 뽑는 공채에서 내게 맞는 부문.
+        "role": opportunity.role,
+        # 자동으로 뺐으면 왜 뺐는지. 보관함에서 그대로 보인다.
+        "filtered_reason": opportunity.filtered_reason,
         # 보류 · 관심 없음을 화면이 따로 모으려면 상태가 있어야 한다.
         "status": opportunity.status,
         "deadline": opportunity.deadline,
@@ -586,7 +711,7 @@ def _build_reasons(
 
     if required == 0:
         reasons.append(
-            "이 기회에 연결된 스킬이 없어 관련성을 판단할 수 없습니다."
+            "공고에서 요구 스킬을 찾지 못해 관련성 · 준비도를 중간으로 봤습니다. 원문을 확인하세요."
         )
     else:
         if relevant_names:

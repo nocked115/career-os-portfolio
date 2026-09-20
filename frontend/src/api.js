@@ -2,6 +2,8 @@
 // 이전에는 App.jsx 안에 http://127.0.0.1:8000 이 11군데 하드코딩돼 있어서
 // 배포하거나 포트를 바꾸려면 전부 찾아 고쳐야 했다.
 
+import { handleDemoWrite } from "./demoWrites"
+
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000"
 
@@ -12,24 +14,35 @@ export const STATIC_DEMO_DATE = import.meta.env.VITE_DEMO_DATE ?? ""
 
 let demoBundle = null
 
-async function staticRequest(path, options) {
-  const method = options?.method ?? "GET"
-
-  if (method !== "GET") {
-    const error = new Error(`Static demo is read-only: ${method} ${path}`)
-    error.status = 403
-    error.detail = "정적 데모라 저장되지 않아요. 화면은 모두 둘러볼 수 있어요."
-    throw error
-  }
-
+async function loadDemoBundle() {
   if (!demoBundle) {
     const response = await fetch(`${import.meta.env.BASE_URL}demo-data.json`)
     demoBundle = await response.json()
   }
+  return demoBundle
+}
+
+async function staticRequest(path, options) {
+  const method = options?.method ?? "GET"
+  const bundle = await loadDemoBundle()
+
+  if (method !== "GET") {
+    // 몇 가지는 브라우저 안에서 흉내 낸다 — 체크 하나가 계획을 바꾸는 것이
+    // 이 제품의 핵심인데, 버튼이 전부 잠긴 데모에서는 그게 증명되지 않는다.
+    const body = options?.body ? JSON.parse(options.body) : null
+    const simulated = handleDemoWrite(path, method, body, bundle)
+
+    if (simulated) return structuredClone(simulated)
+
+    const error = new Error(`Static demo is read-only: ${method} ${path}`)
+    error.status = 403
+    error.detail = "데모에서는 오늘 계획 체크만 눌러 볼 수 있어요. 나머지는 저장되지 않아요."
+    throw error
+  }
 
   // 같은 주소를 먼저, 없으면 조건(?…)을 뗀 주소를 쓴다 — 날짜 · 분 같은 조건이 달라도 화면이 빈다.
   const bare = path.split("?")[0]
-  const hit = demoBundle.responses[path] ?? demoBundle.responses[bare]
+  const hit = bundle.responses[path] ?? bundle.responses[bare]
 
   if (hit === undefined) {
     const error = new Error(`Static demo has no data for ${path}`)
@@ -166,6 +179,10 @@ export const learningSteps = {
   complete: (id) => post(`/learning-steps/${id}/complete`),
   // 다른 세션에 붙여넣을 텍스트 { text }
   handoff: (id) => get(`/learning-steps/${id}/handoff`),
+  // 이 단계에서 내가 만든 것 — 노트 · 자료 · 코드의 주소
+  addOutput: (id, body) => post(`/learning-steps/${id}/outputs`, body),
+  removeOutput: (outputId) => del(`/step-outputs/${outputId}`),
+  toExperience: (id) => post(`/learning-steps/${id}/experience`),
   linkResource: (id, resourceId) =>
     post(`/learning-steps/${id}/resources/${resourceId}`),
   unlinkResource: (id, resourceId) =>
@@ -188,6 +205,8 @@ export const todayPlan = {
   // 루틴이면 body 에 { count } — 실제로 푼 개수. 비우면 목표만큼 한 것으로 본다.
   complete: (taskId, body) => post(`/today/tasks/${taskId}/complete`, body),
   skip: (taskId) => post(`/today/tasks/${taskId}/skip`),
+  // 잘못 누른 완료 · 넘김 되돌리기. 루틴이면 그날 기록도 지운다.
+  reopen: (taskId) => post(`/today/tasks/${taskId}/reopen`),
   revive: (taskId) => post(`/today/tasks/${taskId}/revive`)
 }
 
@@ -343,9 +362,15 @@ export const opportunities = {
     get(`/opportunities/recommended?limit=${limit}`),
   collect: () => post("/opportunities/collect"),
   parse: (text, url = "") => post("/opportunities/parse", { text, url }),
+  // 알림 메일 하나에 든 여러 건을 공고 단위로 자른다. 하나뿐이면 count 0.
+  split: (text) => post("/opportunities/split", { text }),
+  // 공고 주소 한 건 가져오기. robots 가 막으면 422 와 이유가 온다 — 그때는 붙여넣기로.
+  fetchUrl: (url) => post("/opportunities/fetch-url", { url }),
   setStatus: (id, status) => patch(`/opportunities/${id}`, { status }),
   // 지원서가 달린 기회는 서버가 409 로 거절한다 (지원 기록은 지우지 않는다).
   remove: (id) => del(`/opportunities/${id}`),
+  // 직무가 달라 자동으로 뺀 공고를 되살린다. 다시 자동으로 빼지 않는다.
+  keep: (id) => post(`/opportunities/${id}/keep`),
   addToPlan: (id, minutes = 30) =>
     post(`/opportunities/${id}/add-to-plan?minutes=${minutes}`)
 }

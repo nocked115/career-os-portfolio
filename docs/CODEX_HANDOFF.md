@@ -36,7 +36,7 @@ Implement one phase at a time, then stop.
 
 ```
 저장소   /Users/hyun/Documents/career-os
-원격     https://github.com/nocked115/career-os-portfolio
+원격     https://github.com/nocked115/career-os
 브랜치   main
 
 완료     PHASE 0 ~ 5.5 · PHASE 5.6 캘린더 (routers/calendar.py)

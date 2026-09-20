@@ -51,6 +51,7 @@ def create_routine(body: schemas.RoutineCreate, db: Session = Depends(get_db)):
         target_count=body.target_count,
         unit_label=body.unit_label.strip(),
         learning_path_id=body.learning_path_id,
+        link_url=body.link_url.strip(),
         note=body.note,
     )
     db.add(routine)
@@ -75,6 +76,8 @@ def update_routine(
         changes["weekdays"] = _weekdays(changes["weekdays"])
     if "title" in changes:
         changes["title"] = changes["title"].strip()
+    if changes.get("link_url"):
+        changes["link_url"] = changes["link_url"].strip()
 
     for field, value in changes.items():
         setattr(routine, field, value)

@@ -18,6 +18,7 @@ import {
   stepStatusLabel
 } from "../format"
 import { useReadOnly } from "../readOnly"
+import { externalHref } from "../safeUrl"
 import "../Learning.css"
 import "../Routine.css"
 
@@ -29,6 +30,128 @@ import "../Routine.css"
    전에는 단계 설명의 줄을 "오늘의 목표" 로 보여주고 체크는 브라우저에만
    남겼다. 이제 체크리스트가 서버에 남는다. 예전 목표 줄은 체크리스트로
    옮기는 버튼이 있다. */
+
+/* 내가 만든 것 — 체크는 "했다" 를 세고, 여기는 "남은 것" 을 가리킨다.
+
+   파일은 받지 않는다. 서버에 디스크가 없고, 파일을 받기 시작하면 백업 ·
+   용량 · 공개 범위가 전부 딸려온다. 노션 · 깃허브 · 드라이브 주소를 둔다. */
+function OutputsSection({ step, outputs, experience, working, readOnly, run }) {
+  const [title, setTitle] = useState("")
+  const [url, setUrl] = useState("")
+
+  const add = () =>
+    run(
+      async () => {
+        await api.learningSteps.addOutput(step.id, { title: title.trim(), url: url.trim() })
+        setTitle("")
+        setUrl("")
+      },
+      "만든 것을 이 단계에 붙였어요.",
+      "주소가 http 또는 https 로 시작하는지 확인해 주세요."
+    )
+
+  return (
+    <section className="card">
+      <div className="materials-header">
+        <p className="card-label">내가 만든 것</p>
+        {experience && <StatusBadge tone="ok">경험으로 보냄</StatusBadge>}
+      </div>
+
+      {outputs.length === 0 ? (
+        <p className="muted">
+          이 단계에서 만든 요약 노트 · 발표 자료 · 코드의 주소를 넣어 두세요. 나중에 지원서를 쓸 때
+          여기서 꺼냅니다. 파일은 올릴 수 없어요 — 노션 · 깃허브 · 드라이브 주소를 넣습니다.
+        </p>
+      ) : (
+        <ul className="out-list">
+          {outputs.map((item) => (
+            <li className="out-item" key={item.id}>
+              <a href={externalHref(item.url)} target="_blank" rel="noreferrer">
+                {item.title}
+              </a>
+              <span className="muted out-url">{item.url.replace(/^https?:\/\//, "")}</span>
+              {!readOnly && (
+                <Button
+                  variant="quiet"
+                  writes
+                  disabled={working}
+                  onClick={() =>
+                    run(
+                      () => api.learningSteps.removeOutput(item.id),
+                      "목록에서 뺐어요.",
+                      "빼지 못했습니다."
+                    )
+                  }
+                >
+                  빼기
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {!readOnly && (
+        <div className="learn-link out-form">
+          <label className="learn-field">
+            <span>무엇을 만들었나</span>
+            <input
+              className="agent-input"
+              maxLength={200}
+              placeholder="예: CLIP 요약 노트"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+          <label className="learn-field">
+            <span>주소 (http로 시작)</span>
+            <input
+              className="agent-input"
+              maxLength={2000}
+              placeholder="https://www.notion.so/…"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+            />
+          </label>
+          <Button variant="secondary" writes disabled={working || !title.trim() || !url.trim()} onClick={add}>
+            붙이기
+          </Button>
+        </div>
+      )}
+
+      {/* 학습이 그냥 사라지지 않게 — 만든 것이 있으면 경험으로 넘긴다. */}
+      {!readOnly && outputs.length > 0 && !experience && (
+        <div className="out-promote">
+          <Button
+            writes
+            disabled={working}
+            onClick={() =>
+              run(
+                () => api.learningSteps.toExperience(step.id),
+                "경험으로 보냈어요. 상황 · 역할 · 수치는 경험(★) 화면에서 채우면 됩니다.",
+                "경험으로 보내지 못했습니다."
+              )
+            }
+          >
+            이 단계를 경험으로 보내기
+          </Button>
+          <span className="muted">
+            단계 이름 · 체크한 항목 · 위 주소만 옮깁니다. 상황 · 역할처럼 직접 겪은 사람만 아는 칸은 비워 둬요.
+          </span>
+        </div>
+      )}
+
+      {experience && (
+        <p className="muted form-hint">
+          경험 「{experience.title}」 으로 남았습니다.{" "}
+          <a className="td-link" href="#/experience">
+            경험에서 다듬기
+          </a>
+        </p>
+      )}
+    </section>
+  )
+}
 
 function LearningSession({ stepId, onBack, onCompleted, onOpenSession, onToday }) {
   const [session, setSession] = useState(null)
@@ -416,6 +539,16 @@ function LearningSession({ stepId, onBack, onCompleted, onOpenSession, onToday }
           )}
         </div>
       </section>
+
+      {/* ---------- 내가 만든 것 ---------- */}
+      <OutputsSection
+        step={step}
+        outputs={session.outputs ?? []}
+        experience={session.experience}
+        working={working}
+        readOnly={readOnly}
+        run={run}
+      />
 
       {/* ---------- 시작 · 완료 ---------- */}
       <div className="session-actions learn-actions">

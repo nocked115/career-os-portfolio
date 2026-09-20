@@ -13,6 +13,7 @@ Mission 021 이전에는 이 계산이 네 곳(`/analytics/learning-priority`,
 """
 
 from .. import models
+from . import market as market_service
 
 
 # 스킬 숙련도 상한. skill_gap 은 이 값과 현재 레벨의 차이다.
@@ -81,7 +82,7 @@ def calculate_learning_progress(skill) -> int:
 
     경로가 없으면 0. 즉 학습 증거가 없는 상태다.
     """
-    paths = skill.learning_paths
+    paths = skill.growing_paths
 
     if not paths:
         return 0
@@ -213,7 +214,7 @@ def build_skill_priorities(db):
     #
     # Job 으로 들어온 것도 이제 Opportunity 에 남는다
     # (opportunity.bridge_from_legacy_job).
-    total_demand = db.query(models.Opportunity).count()
+    total_demand = market_service.count_opportunities(db)
 
     target_career = get_active_target_career(db)
     target_skill_ids = (
@@ -289,7 +290,7 @@ def build_skill_priorities(db):
             "skill_gap": skill_gap,
             "career_projects": career_projects,
             "has_project_evidence": has_project_evidence,
-            "learning_paths": list(skill.learning_paths),
+            "learning_paths": list(skill.growing_paths),
             "learning_progress": learning_progress,
             "has_learning_evidence": learning_progress > 0,
             "project_weight": project_weight,

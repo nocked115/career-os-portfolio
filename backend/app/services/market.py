@@ -23,7 +23,15 @@ TREND_UNKNOWN = "unknown"
 
 
 def count_opportunities(db) -> int:
-    return db.query(models.Opportunity).count()
+    """수요의 모수. 직무가 달라 자동으로 뺀 공고는 세지 않는다 (job_fit).
+
+    영업 · 생산 공고가 모수에 들어가면 모든 스킬의 비율이 까닭 없이 내려간다.
+    """
+    return (
+        db.query(models.Opportunity)
+        .filter(models.Opportunity.filtered_reason == "")
+        .count()
+    )
 
 
 def build_signals(db) -> list[dict]:

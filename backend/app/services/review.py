@@ -43,9 +43,15 @@ def _skill_of_segment(segment) -> str | None:
 
 
 def _skill_of_step(step) -> str | None:
+    """이 단계가 어느 스킬에 쌓였는가. 대표 스킬이 없으면 연결된 것 중 첫 번째."""
     path = step.learning_path
 
-    return path.skill.name if path and path.skill else None
+    if path is None:
+        return None
+
+    skill = path.skill or (path.skills[0] if path.skills else None)
+
+    return skill.name if skill else None
 
 
 def _execution(db, start: datetime, end: datetime, today: date) -> dict:
@@ -184,6 +190,7 @@ def serialize_reflection(row) -> dict | None:
         "went_well": row.went_well,
         "to_improve": row.to_improve,
         "next_focus": row.next_focus,
+        "dropped": row.dropped,
         "updated_at": row.updated_at,
     }
 
@@ -207,6 +214,7 @@ def save_reflection(db, year: int, month: int, payload) -> dict:
     row.went_well = payload.went_well.strip()
     row.to_improve = payload.to_improve.strip()
     row.next_focus = payload.next_focus.strip()
+    row.dropped = payload.dropped.strip()
 
     db.commit()
     db.refresh(row)

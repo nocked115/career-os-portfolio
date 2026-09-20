@@ -4,7 +4,7 @@
 > 앱은 Dockerfile 하나로 배포된다 — 공개 데모(읽기 전용 · 지어낸 데이터)와
 > 실사용(Basic Auth) 두 벌이다.
 >
-> 저장소: https://github.com/nocked115/career-os-portfolio
+> 저장소: https://github.com/nocked115/career-os
 > 화면 시안: https://claude.ai/code/artifact/936eecf1-4671-4e43-8a2e-25652366417f
 
 ---

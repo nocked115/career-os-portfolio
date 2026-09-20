@@ -466,6 +466,7 @@ function LearningPage({ onOpenSession, initialTab = "paths" }) {
                     <PathEditor
                       key={`about-${path.id}`}
                       path={path}
+                      skills={data.skills ?? []}
                       working={working}
                       onSave={(body) =>
                         run(
@@ -767,11 +768,17 @@ function SessionsTab({ steps, onOpenSession, onGoPaths }) {
 
    전에는 화면에서 고칠 곳이 없었다. 설명은 다른 세션에 넘길 프롬프트의 "이 트랙" 이
    되고, 목표일은 14일 안에 들어오면 오늘 계획이 다음 단계를 챙긴다. */
-function PathEditor({ path, working, onSave }) {
+function PathEditor({ path, skills = [], working, onSave }) {
   const [open, setOpen] = useState(false)
   const [description, setDescription] = useState(path.description ?? "")
   const [targetDate, setTargetDate] = useState(path.target_date ?? "")
+  // 한 경로가 여러 스킬을 키운다 (Tave 논문 스터디 → PyTorch · Computer Vision).
+  const linkedIds = (path.skills ?? []).map((skill) => skill.id)
+  const [skillIds, setSkillIds] = useState(
+    linkedIds.length ? linkedIds : path.skill_id ? [path.skill_id] : []
+  )
   const written = (path.description ?? "").trim()
+  const linkedNames = (path.skills ?? []).map((skill) => skill.name)
 
   if (!open) {
     return (
@@ -784,7 +791,10 @@ function PathEditor({ path, working, onSave }) {
           </p>
         )}
         <div className="ui-row">
-          <span className="muted form-hint">목표일 {path.target_date ?? "없음"}</span>
+          <span className="muted form-hint">
+            키우는 스킬 {linkedNames.length ? linkedNames.join(" · ") : "없음"} · 목표일{" "}
+            {path.target_date ?? "없음"}
+          </span>
           <Button variant="quiet" writes onClick={() => setOpen(true)}>
             {written ? "설명 · 목표일 고치기" : "설명 · 목표일 적기"}
           </Button>
@@ -796,7 +806,8 @@ function PathEditor({ path, working, onSave }) {
   const save = async () => {
     const saved = await onSave({
       description: description.trim(),
-      target_date: targetDate || null
+      target_date: targetDate || null,
+      skill_ids: skillIds
     })
     if (saved) setOpen(false)
   }
@@ -814,6 +825,32 @@ function PathEditor({ path, working, onSave }) {
           onChange={(event) => setDescription(event.target.value)}
         />
       </label>
+      {/* 경로가 어떤 스킬을 키우는지. 연결하면 이 경로의 진행이 그 스킬의 학습으로 잡히고,
+          그 스킬이 1위일 때 오늘 계획이 따로 자료를 찾지 않고 이 경로의 다음 단계를 꺼낸다. */}
+      <fieldset className="path-skills">
+        <legend>이 경로가 키우는 스킬 — 여러 개 고를 수 있어요. 진행이 고른 스킬 모두의 학습으로 잡혀요</legend>
+        {skills.length === 0 ? (
+          <p className="muted">등록된 스킬이 없어요. 진행 탭에서 먼저 추가하세요.</p>
+        ) : (
+          skills.map((skill) => (
+            <label className="sk-check" key={skill.id}>
+              <input
+                type="checkbox"
+                checked={skillIds.includes(skill.id)}
+                onChange={() =>
+                  setSkillIds((current) =>
+                    current.includes(skill.id)
+                      ? current.filter((id) => id !== skill.id)
+                      : [...current, skill.id]
+                  )
+                }
+              />
+              {skill.name} · 레벨 {skill.level ?? 0}
+            </label>
+          ))
+        )}
+      </fieldset>
+
       <label className="learn-field">
         <span>목표일 (선택) — 14일 안으로 들어오면 오늘 계획이 다음 단계를 챙겨요</span>
         <input
@@ -832,6 +869,7 @@ function PathEditor({ path, working, onSave }) {
           onClick={() => {
             setDescription(path.description ?? "")
             setTargetDate(path.target_date ?? "")
+            setSkillIds(linkedIds)
             setOpen(false)
           }}
         >

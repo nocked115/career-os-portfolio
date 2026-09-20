@@ -19,7 +19,9 @@ const EMPTY_FORM = {
   weekdays: [0, 1, 2, 3, 4, 5, 6],
   target: "",
   unit: "",
-  pathId: ""
+  pathId: "",
+  link: "",
+  note: ""
 }
 
 function Dots({ recent }) {
@@ -40,6 +42,94 @@ function Dots({ recent }) {
         )
       })}
     </ol>
+  )
+}
+
+/* 이미 만든 루틴의 시작하는 곳 · 메모만 고친다. */
+function RoutineLinkEditor({ routine, working, onSave }) {
+  const [open, setOpen] = useState(false)
+  const [link, setLink] = useState(routine.link_url ?? "")
+  const [note, setNote] = useState(routine.note ?? "")
+  // 시간도 여기서 고친다. 전에는 만들 때만 정할 수 있어서, 시험 전 사흘처럼
+  // 잠깐 늘려야 할 때 루틴을 지우고 다시 만드는 수밖에 없었다.
+  const [minutes, setMinutes] = useState(routine.minutes ?? 30)
+  const validMinutes = Number(minutes) >= 5 && Number(minutes) <= 600
+
+  if (!open) {
+    return (
+      <Button variant="quiet" writes onClick={() => setOpen(true)}>
+        시간 · 시작하는 곳 · 메모 고치기
+      </Button>
+    )
+  }
+
+  return (
+    <div className="rt-form">
+      <label className="learn-field">
+        <span>하루에 쓸 시간 (분, 5~600) — 오늘 계획이 이만큼 먼저 떼어 둬요</span>
+        <input
+          className="plan-input"
+          type="number"
+          min="5"
+          max="600"
+          step="5"
+          value={minutes}
+          onChange={(event) => setMinutes(event.target.value)}
+        />
+      </label>
+      <label className="learn-field">
+        <span>시작하는 곳 (http로 시작하는 주소)</span>
+        <input
+          className="agent-input"
+          maxLength={500}
+          placeholder="https://school.programmers.co.kr/learn/challenges"
+          value={link}
+          onChange={(event) => setLink(event.target.value)}
+        />
+      </label>
+      <label className="learn-field">
+        <span>시작하는 방법 메모</span>
+        <input
+          className="agent-input"
+          maxLength={500}
+          placeholder="예: Lv.1에서 안 푼 문제 위에서부터"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+        />
+      </label>
+      <div className="ui-row">
+        <Button
+          writes
+          disabled={working || !validMinutes}
+          onClick={async () => {
+            const saved = await onSave(
+              () =>
+                api.routines.update(routine.id, {
+                  minutes: Number(minutes),
+                  link_url: link.trim(),
+                  note: note.trim()
+                }),
+              "저장했어요. 시간을 바꿨으면 오늘 화면에서 계획을 다시 세워야 반영돼요.",
+              "저장하지 못했습니다."
+            )
+            if (saved) setOpen(false)
+          }}
+        >
+          저장
+        </Button>
+        <Button
+          variant="quiet"
+          onClick={() => {
+            setLink(routine.link_url ?? "")
+            setNote(routine.note ?? "")
+            setMinutes(routine.minutes ?? 30)
+            setOpen(false)
+          }}
+        >
+          취소
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -112,7 +202,9 @@ export default function RoutinesCard({ onChanged }) {
           weekdays: form.weekdays,
           target_count: form.target ? Number(form.target) : null,
           unit_label: form.unit.trim(),
-          learning_path_id: form.pathId ? Number(form.pathId) : null
+          learning_path_id: form.pathId ? Number(form.pathId) : null,
+          link_url: form.link.trim(),
+          note: form.note.trim()
         }),
       `'${form.title.trim()}' 루틴을 만들었어요. 오늘 화면에서 계획을 다시 세우면 들어가요.`,
       "루틴을 만들지 못했습니다."
@@ -189,6 +281,21 @@ export default function RoutinesCard({ onChanged }) {
               {routine.next_step && (
                 <p className="rt-meta">다음 단계 · {routine.next_step.title}</p>
               )}
+              {routine.link_url ? (
+                <p className="rt-meta">
+                  시작하는 곳 ·{" "}
+                  <a href={routine.link_url} target="_blank" rel="noreferrer noopener">
+                    {routine.link_url.replace(/^https?:\/\//, "").slice(0, 48)}
+                  </a>
+                </p>
+              ) : (
+                <p className="rt-meta">
+                  시작하는 곳이 없어요 — 넣어 두면 오늘 계획의 &lsquo;시작&rsquo;이 바로 열어요
+                </p>
+              )}
+              {routine.note && <p className="rt-meta">메모 · {routine.note}</p>}
+
+              <RoutineLinkEditor routine={routine} working={working} onSave={run} />
             </div>
 
             <div className="rt-week">
@@ -331,6 +438,29 @@ export default function RoutinesCard({ onChanged }) {
               />
             </label>
           </div>
+
+          {/* 오늘 계획에서 "시작" 을 누르면 여기로 연다. 없으면 메모를 보여준다. */}
+          <label className="learn-field">
+            <span>시작하는 곳 (선택) — 오늘 계획의 &lsquo;시작&rsquo;이 이 주소를 열어요</span>
+            <input
+              className="agent-input"
+              maxLength={500}
+              placeholder="https://school.programmers.co.kr/learn/challenges"
+              value={form.link}
+              onChange={(event) => setForm({ ...form, link: event.target.value })}
+            />
+          </label>
+
+          <label className="learn-field">
+            <span>시작하는 방법 메모 (선택) — 링크가 없을 때 대신 보여줘요</span>
+            <input
+              className="agent-input"
+              maxLength={500}
+              placeholder="예: 프로그래머스 Lv.1에서 안 푼 문제 위에서부터"
+              value={form.note}
+              onChange={(event) => setForm({ ...form, note: event.target.value })}
+            />
+          </label>
 
           <label className="learn-field">
             <span>학습 경로 연결 (선택) — 연결하면 그 경로의 다음 단계를 열어요</span>

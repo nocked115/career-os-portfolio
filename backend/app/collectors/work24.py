@@ -25,6 +25,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 from .. import auth
+from ..services import job_fit
 from . import base
 
 
@@ -39,39 +40,15 @@ MAX_PAGES = 10
 # 하루 한 번 도는 수집에서 상세를 몇 건까지 부를지. 2026-09-16 에 접수 중인 공채가 264건이었다.
 DEFAULT_MAX_DETAILS = 300
 
-# 고르는 말은 두 층이다.
+# 무엇을 들일지는 services/job_fit.py 가 모집 부문마다 판단한다.
 #
-# 처음에는 "데이터" · "AI" 를 직무 설명 어디서든 찾았다. 실제 264건에 돌리니 35건이 남았는데
-# 절반이 "급여 데이터 관리" · "매출 데이터 정리" · "AI Tool 기반 비주얼" 같은 인사 · 영업 ·
-# 마케팅 직무였다. 짧은 말은 직무 설명 안에서 너무 흔하다.
-#
-#   KEYWORDS       직무 설명 · 부문 이름 · 제목 어디서든 — 그 자체로 데이터/AI 직무를 뜻하는 말
-#   SECTION_WORDS  제목이나 모집 부문 이름에 있을 때만 — "AI 솔루션 개발" 부문, "QC Data Management" 부문
-#
-# 영문은 대소문자를 가리지 않고, 한 단어짜리는 단어 경계로 찾는다 (E-MAIL 의 AI 를 잡지 않게).
-DEFAULT_KEYWORDS = (
-    "데이터 분석,데이터분석,데이터 사이언,데이터사이언,데이터 엔지니어,데이터엔지니어,"
-    "빅데이터,데이터 파이프라인,머신러닝,딥러닝,인공지능,AI 모델,AI 솔루션,"
-    "NLP,LLM,MLOps,컴퓨터비전,추천시스템,Data Scien,Data Analy,Data Engineer,Data 분석"
-)
-DEFAULT_SECTION_WORDS = "AI,데이터,Data,DX"
+# 처음에는 "데이터" · "AI" 를 직무 설명 어디서든 찾았고(35건 중 절반이 인사 · 영업), 다음에는
+# 말을 두 층으로 나눴다. 그래도 요즘 직무 설명에 흔한 "데이터 분석 기반 …" 한 줄 때문에
+# 2026-09-17 들인 18건 중 10건이 영업 · 마케팅 · 생산이었다. 이제 부문 이름과 하는 일을 같이 본다.
 
 
 def _key() -> str:
     return os.getenv("WORK24_API_KEY", "").strip()
-
-
-def _words(name: str, default: str) -> list[str]:
-    raw = os.getenv(name, default)
-    return [word.strip() for word in raw.split(",") if word.strip()]
-
-
-def keywords() -> list[str]:
-    return _words("CAREER_OS_WORK24_KEYWORDS", DEFAULT_KEYWORDS)
-
-
-def section_words() -> list[str]:
-    return _words("CAREER_OS_WORK24_SECTION_WORDS", DEFAULT_SECTION_WORDS)
 
 
 def max_details() -> int:
@@ -112,6 +89,7 @@ def _text(node, tag: str) -> str:
 
 
 def _matches(text: str, words: list[str]) -> list[str]:
+    """채용 행사 수집(work24_events)이 행사 이름 · 지역을 고를 때 쓴다."""
     found = []
     lowered = text.lower()
     for word in words:
@@ -175,7 +153,6 @@ def fetch() -> list[dict]:
         if not items or len(postings) >= total:
             break
 
-    words = keywords()
     kept = []
 
     for posting in postings[: max_details()]:
@@ -187,18 +164,24 @@ def fetch() -> list[dict]:
             # 상세 하나가 실패해도 나머지는 계속 본다.
             continue
 
-        names = " ".join([posting["title"]] + [section["name"] for section in detail["sections"]])
-        jobs = " ".join(section["job"] for section in detail["sections"])
-
-        found = []
-        for word in _matches(f"{names} {jobs}", words) + _matches(names, section_words()):
-            if word not in found:
-                found.append(word)
-        if not found:
+        # 모집 부문마다 데이터 · AI 직무인지 본다 (services/job_fit.py).
+        # 전에는 설명 어딘가에 "데이터 분석" 한 번만 있어도 들였다 — 건강식품 온라인 영업,
+        # 홈쇼핑 MD 까지 들어왔다.
+        judged = job_fit.judge_sections(detail["sections"])
+        if not judged["fits"]:
             continue
 
-        kept.append({**posting, **detail, "matched": found,
-                     "company_type": posting["company_type"] or detail["company_type"]})
+        kept.append({
+            **posting,
+            **detail,
+            "sections": [
+                {key: value for key, value in section.items() if key != "why"}
+                for section in judged["kept"]
+            ],
+            "dropped_sections": [section["name"] for section in judged["dropped"]],
+            "matched": [section["why"] for section in judged["kept"]],
+            "company_type": posting["company_type"] or detail["company_type"],
+        })
 
     return kept
 
@@ -221,7 +204,10 @@ def normalize(raw: dict) -> dict:
         lines.append(f"접수: {_dash_date(raw.get('start', ''))} ~ {_dash_date(raw.get('end', ''))}")
     if raw.get("company_type"):
         lines.append(f"기업 구분: {raw['company_type']}")
-    lines.append(f"찾은 말: {', '.join(raw.get('matched', []))}")
+    dropped = raw.get("dropped_sections", [])
+    if dropped:
+        # 데이터 · AI 가 아닌 부문은 설명에 넣지 않는다 — 스킬이 그 부문 설명에서 잘못 뽑힌다.
+        lines.append(f"그 외 모집 부문 {len(dropped)}개({', '.join(dropped[:5])}) 는 데이터 · AI 직무가 아니라 뺐어요.")
     lines.append("출처: 고용24 공채속보")
 
     regions = []
@@ -234,6 +220,8 @@ def normalize(raw: dict) -> dict:
         external_id=raw.get("seqno"),
         title=raw.get("title", ""),
         organization=raw.get("company", ""),
+        # 여러 부문을 뽑는 공채에서 내게 맞는 부문. 목록에서 제목만으로는 모른다.
+        role=" · ".join(section["name"] for section in raw.get("sections", []))[:200],
         description="\n".join(lines),
         url=raw.get("url") or raw.get("homepage", ""),
         location=", ".join(regions),

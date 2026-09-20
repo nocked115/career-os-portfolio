@@ -119,6 +119,17 @@ def complete_task(
     return today_service.complete_task(db, task, count=body.count if body else None)
 
 
+@router.post("/tasks/{task_id}/reopen")
+def reopen_task(task_id: int, db: Session = Depends(get_db)):
+    """완료 · 넘김 되돌리기. 완료가 남긴 기록(루틴 그날 기록 등)도 같이 되돌린다."""
+    task = get_or_404(db, models.DailyPlanTask, task_id, "Task")
+
+    if task.status == "planned":
+        raise HTTPException(status_code=400, detail="아직 하지 않은 일이라 되돌릴 게 없어요.")
+
+    return today_service.reopen_task(db, task)
+
+
 @router.post("/tasks/{task_id}/revive")
 def revive_task(task_id: int, db: Session = Depends(get_db)):
     """사흘 넘게 밀린 일을 "그래도 하겠다" 고 되살린다.

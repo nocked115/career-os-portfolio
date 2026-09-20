@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { READ_ONLY_HINT, useReadOnly } from "../readOnly"
+import { STATIC_DEMO } from "../api"
 
 /* 모든 작업 화면이 같이 쓰는 모양.
 
@@ -13,6 +14,9 @@ import { READ_ONLY_HINT, useReadOnly } from "../readOnly"
 export function Button({
   variant = "primary",
   writes = false,
+  // 정적 데모에서도 눌러 볼 수 있는 버튼. 체크 하나가 계획을 바꾸는 게
+  // 이 제품의 핵심인데 버튼이 전부 잠겨 있으면 그걸 보여줄 수 없다.
+  tryInDemo = false,
   disabled = false,
   className = "",
   title,
@@ -20,7 +24,7 @@ export function Button({
   ...props
 }) {
   const readOnly = useReadOnly()
-  const blocked = writes && readOnly
+  const blocked = writes && readOnly && !(tryInDemo && STATIC_DEMO)
 
   return (
     <button

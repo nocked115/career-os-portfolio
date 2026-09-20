@@ -203,11 +203,15 @@
   gap: 3px;
 }
 
-/* 종류별 연한 색 — "전체" 에서 채용 · 공모전 · 대외활동 · 채용 행사를 모양보다 먼저 가른다. */
-.opp-row.opp-type-job { background: #f4f7fe; border-left: 3px solid #9db4ea; }
-.opp-row.opp-type-competition { background: #fff8ee; border-left: 3px solid #ecc07e; }
-.opp-row.opp-type-external_activity { background: #f2faf5; border-left: 3px solid #93cda8; }
-.opp-row.opp-type-job_event { background: #f8f4fe; border-left: 3px solid #bda6e8; }
+/* 종류별 구분 — "전체" 에서 채용 · 공모전 · 대외활동 · 채용 행사를 모양보다 먼저 가른다.
+   줄 바탕은 흰색으로 둔다. 연한 색 바탕은 화면 바탕(연한 파랑)과 거의 같아서 채용 줄이 묻혔다.
+   종류는 왼쪽 굵은 선과 진한 칩으로 가른다. */
+.opp-row { background: #ffffff; }
+/* 테두리 전체를 종류 색으로 두르고, 왼쪽만 굵게. */
+.opp-row.opp-type-job { border: 1px solid #a9bdec; border-left: 4px solid #6f8fdc; }
+.opp-row.opp-type-competition { border: 1px solid #efc88c; border-left: 4px solid #dd9d3f; }
+.opp-row.opp-type-external_activity { border: 1px solid #9fd2b1; border-left: 4px solid #5aae7a; }
+.opp-row.opp-type-job_event { border: 1px solid #c6b5ec; border-left: 4px solid #9a7ddb; }
 
 .opp-type-chip {
   justify-self: start;
@@ -219,10 +223,10 @@
   letter-spacing: 0.02em;
 }
 
-.opp-type-chip-job { background: #e2eafb; color: #2f55a8; }
-.opp-type-chip-competition { background: #fcecd2; color: #8a5a10; }
-.opp-type-chip-external_activity { background: #dcf1e3; color: #2b7348; }
-.opp-type-chip-job_event { background: #ece3fb; color: #5b40a8; }
+.opp-type-chip-job { background: #3b67c4; color: #ffffff; }
+.opp-type-chip-competition { background: #a8660f; color: #ffffff; }
+.opp-type-chip-external_activity { background: #2b7348; color: #ffffff; }
+.opp-type-chip-job_event { background: #6a4bc0; color: #ffffff; }
 
 .opp-row-badges {
   display: flex;
@@ -269,4 +273,50 @@
     grid-column: 1 / -1;
     justify-self: start;
   }
+}
+
+/* 휴지통 — 줄 오른쪽 바깥. 줄을 누르는 자리와 겹치지 않게 떼어 둔다. */
+.opp-row-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.opp-trash {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.opp-trash:hover:not(:disabled),
+.opp-trash:focus-visible {
+  border-color: #f0c4c0;
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.opp-trash:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 점수 옆 산식 — 69/100 이 어디서 나왔는지 접지 않고 붙인다 */
+.opp-score-parts {
+  display: block;
+  max-width: 220px;
+  margin-top: 4px;
+
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-soft);
+  text-align: right;
 }

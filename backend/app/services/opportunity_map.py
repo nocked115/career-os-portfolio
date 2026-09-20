@@ -41,7 +41,7 @@ def _study(db, skill, score) -> dict:
     ]
     steps = [
         step
-        for path in skill.learning_paths
+        for path in skill.growing_paths
         for step in path.steps
     ]
 

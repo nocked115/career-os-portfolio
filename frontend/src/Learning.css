@@ -283,3 +283,47 @@
     flex: 1;
   }
 }
+
+/* ---------- 내가 만든 것 ---------- */
+
+.out-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  margin: 8px 0 0;
+  padding: 0;
+
+  list-style: none;
+}
+
+.out-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+
+  padding-block: 6px;
+
+  border-bottom: 1px solid var(--line);
+}
+
+.out-url {
+  flex: 1;
+
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.out-form {
+  margin-top: 12px;
+}
+
+.out-promote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+
+  margin-top: 12px;
+}

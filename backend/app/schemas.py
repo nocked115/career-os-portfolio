@@ -277,11 +277,15 @@ class LearningPathCreate(BaseModel):
     status: LearningStatus = "not_started"
     progress_percent: int = Field(default=0, ge=0, le=100)
     target_date: date | None = None
+    # 대표 스킬. skill_ids 를 주면 그 첫 번째로 맞춘다.
     skill_id: int | None = None
+    # 이 경로가 키우는 스킬 전부. 한 경로가 PyTorch 와 Computer Vision 을 같이 키울 수 있다.
+    skill_ids: list[int] | None = Field(default=None, max_length=10)
 
 
 class LearningPathResponse(LearningPathCreate):
     id: int
+    skills: list[SkillResponse] = []
     created_at: datetime
     updated_at: datetime
 
@@ -483,6 +487,8 @@ class LearningPathUpdate(BaseModel):
     progress_percent: int | None = Field(default=None, ge=0, le=100)
     target_date: date | None = None
     skill_id: int | None = None
+    # 빈 목록을 주면 연결을 모두 끊는다.
+    skill_ids: list[int] | None = Field(default=None, max_length=10)
 
 
 class LearningStepUpdate(BaseModel):
@@ -505,6 +511,12 @@ class LearningStepUpdate(BaseModel):
 
 ChecklistKind = Literal["task", "note", "link"]
 SAFE_URL_PATTERN = r"^https?://\S+$"
+
+
+class PostingUrlRequest(BaseModel):
+    """공고 주소 한 건. 앱이 목록을 훑지 않는다 — 사람이 고른 주소만."""
+
+    url: str = Field(pattern=r"^https?://\S+$", max_length=2000)
 
 
 class ChecklistParseRequest(BaseModel):
@@ -548,6 +560,13 @@ class ChecklistItemCreate(BaseModel):
     url: str = Field(default="", pattern=r"^(https?://\S+)?$", max_length=2000)
 
 
+class StepOutputCreate(BaseModel):
+    """단계에서 내가 만든 것. 파일은 안 받는다 — 열 수 있는 주소만."""
+
+    title: str = Field(min_length=1, max_length=200)
+    url: str = Field(pattern=r"^https?://\S+$", max_length=2000)
+
+
 class ChecklistItemUpdate(BaseModel):
     done: bool | None = None
     text: str | None = Field(default=None, min_length=1, max_length=300)
@@ -562,6 +581,7 @@ class ReflectionUpdate(BaseModel):
     went_well: str = Field(default="", max_length=2000)
     to_improve: str = Field(default="", max_length=2000)
     next_focus: str = Field(default="", max_length=2000)
+    dropped: str = Field(default="", max_length=2000)
 
 
 # --------------------------------
@@ -576,6 +596,8 @@ class RoutineCreate(BaseModel):
     target_count: int | None = Field(default=None, ge=1, le=100)
     unit_label: str = Field(default="", max_length=20)
     learning_path_id: int | None = None
+    # 시작하는 곳. http(s) 만 — 화면에서 눌리는 주소다.
+    link_url: str = Field(default="", pattern=r"^(https?://\S+)?$", max_length=500)
     note: str = Field(default="", max_length=500)
 
 
@@ -587,6 +609,7 @@ class RoutineUpdate(BaseModel):
     unit_label: str | None = Field(default=None, max_length=20)
     learning_path_id: int | None = None
     active: bool | None = None
+    link_url: str | None = Field(default=None, pattern=r"^(https?://\S+)?$", max_length=500)
     note: str | None = Field(default=None, max_length=500)
 
 
@@ -642,7 +665,7 @@ class CertificateUpdate(BaseModel):
 
 
 class PostingParseRequest(BaseModel):
-    """붙여넣은 공고 글. 앱은 링크를 열지 않는다 — 저장만 한다."""
+    """붙여넣은 공고 글. 여기서는 링크를 열지 않는다 — 주소로 가져오기는 /fetch-url."""
 
     text: str = Field(min_length=1, max_length=50000)
     url: str = ""

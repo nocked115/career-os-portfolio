@@ -81,19 +81,13 @@ def test_fetch_without_a_key_sends_nothing(monkeypatch):
 def test_postings_are_kept_by_recruit_section_not_title(fake_api):
     kept = work24.fetch()
 
-    # 제목에는 없지만 DX 부문의 직무 설명에 "데이터 분석 · 머신러닝" 이 있다.
-    # 생산직의 "데이터 정리 · AI Tool" 은 직무 설명 속 짧은 말이라 고르지 않는다.
-    # E-MAIL 마케팅의 AI 는 단어 경계에 걸리지 않는다.
+    # 제목에는 없지만 DX 부문이 데이터 · AI 직무다 (services/job_fit.py).
+    # 생산 부문은 설명에 "데이터 정리 · AI Tool" 이 있어도 직무가 생산이라 들이지 않는다.
+    # 마케팅도 마찬가지.
     assert [item["seqno"] for item in kept] == ["1"]
-    assert kept[0]["matched"] == ["데이터 분석", "머신러닝", "DX"]
+    assert [section["name"] for section in kept[0]["sections"]] == ["DX"]
+    assert kept[0]["dropped_sections"] == ["영업"]
     assert len([c for c in fake_api if c[0] == work24.DETAIL_URL]) == 3
-
-
-def test_short_words_count_only_in_titles_and_section_names():
-    assert work24._matches("AI 솔루션 개발 부문", work24.section_words()) == ["AI"]
-    assert work24._matches("QC Data Management", work24.section_words()) == ["Data"]
-    assert work24._matches("- 급여 데이터 관리", work24.keywords()) == []
-    assert work24._matches("- 데이터 파이프라인 구축", work24.keywords()) == ["데이터 파이프라인"]
 
 
 def test_fields_land_where_they_belong(fake_api):
@@ -104,7 +98,11 @@ def test_fields_land_where_they_belong(fake_api):
     assert normalized["title"] == "'26년 하반기 대졸 신입사원 모집"
     assert normalized["organization"] == "테스트전자"
     assert normalized["source_url"] == "https://recruit.example.com/1"
-    assert normalized["location"] == "수원, 서울"
+    # 맞지 않는 부문(영업 · 서울)은 설명 · 지역에 넣지 않는다 — 스킬이 그 설명에서 잘못 뽑힌다.
+    assert normalized["location"] == "수원"
+    assert normalized["role"] == "DX"
+    assert "그 외 모집 부문 1개(영업)" in normalized["description"]
+    assert "국내 영업" not in normalized["description"]
     assert normalized["employment_type"] == "정규직"
     assert normalized["deadline"].strftime("%Y-%m-%d") == "2026-09-27"
     assert "모집 부문: DX · 신입 · 수원 — - 데이터 분석 및 머신러닝 모델 개발" in normalized["description"]
@@ -153,3 +151,19 @@ def test_collected_postings_are_saved_and_linked(db_session, fake_api):
 
     again = opportunity_service.collect_from(db_session, work24)
     assert (again["created"], again["updated"]) == (0, 1)
+
+
+def test_a_trashed_posting_does_not_come_back_the_next_morning(client, db_session, fake_api):
+    opportunity_service.collect_from(db_session, work24)
+    saved = db_session.query(models.Opportunity).filter_by(source="work24").one()
+
+    assert client.delete(f"/opportunities/{saved.id}").status_code == 200
+
+    again = opportunity_service.collect_from(db_session, work24)
+
+    assert again["created"] == 0
+    assert again["skipped"] == 1
+    assert db_session.query(models.Opportunity).filter_by(source="work24").count() == 0
+    # 번호만 남는다. 제목 · 회사 · 설명은 남기지 않는다.
+    dismissed = db_session.query(models.DismissedPosting).one()
+    assert (dismissed.source, dismissed.source_external_id) == ("work24", "1")

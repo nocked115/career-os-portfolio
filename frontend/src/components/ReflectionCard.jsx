@@ -20,7 +20,13 @@ const SCALE = [
 const FIELDS = [
   { key: "went_well", label: "잘한 것", placeholder: "예: 코테를 거의 매일 풀었다" },
   { key: "to_improve", label: "아쉬운 것", placeholder: "예: Tave 발표 준비를 전날 몰아서 했다" },
-  { key: "next_focus", label: "다음 달 초점", placeholder: "예: 캡스톤 MVP 먼저, 추천시스템은 주 2회" }
+  { key: "next_focus", label: "다음 달 초점", placeholder: "예: 캡스톤 MVP 먼저, 추천시스템은 주 2회" },
+  // 할 게 너무 많다는 느낌은 대개 버린 것을 안 적어서 생긴다. 덜어낸 판단도 기록이다.
+  {
+    key: "dropped",
+    label: "버린 것",
+    placeholder: "예: 데이터 엔지니어링 책은 이번 학기에 안 본다, 공모전은 캡스톤 끝나고"
+  }
 ]
 
 function toForm(reflection) {
@@ -28,7 +34,8 @@ function toForm(reflection) {
     rating: reflection?.rating ?? null,
     went_well: reflection?.went_well ?? "",
     to_improve: reflection?.to_improve ?? "",
-    next_focus: reflection?.next_focus ?? ""
+    next_focus: reflection?.next_focus ?? "",
+    dropped: reflection?.dropped ?? ""
   }
 }
 

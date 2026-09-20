@@ -180,6 +180,50 @@ def collect_deadlines(db, today: date | None = None) -> list[dict]:
             "days_left": days,
         })
 
+    # 학교 일 — 캡스톤 목표일, 논문 스터디 발표 주차. 공고보다 이쪽이 더 못 미룬다.
+    # 전에는 계획 안에만 들어오고 띠에는 안 떠서, "오늘 뭐가 급한가" 에 학교가 빠져 있었다.
+    projects = (
+        db.query(models.Project)
+        .filter(models.Project.target_date.isnot(None), models.Project.target_date != "")
+        .filter(models.Project.status != "completed")
+        .all()
+    )
+
+    for project in projects:
+        days = _days_left(_parse_target_date(project.target_date), today)
+
+        if days is None or days < 0 or days > DEADLINE_HORIZON_DAYS:
+            continue
+
+        items.append({
+            "kind": "project",
+            "id": project.id,
+            "title": project.name,
+            "status": project.status,
+            "days_left": days,
+        })
+
+    steps = (
+        db.query(models.LearningStep)
+        .filter(models.LearningStep.due_date.isnot(None))
+        .filter(models.LearningStep.status != learning_service.COMPLETED)
+        .all()
+    )
+
+    for step in steps:
+        days = _days_left(step.due_date, today)
+
+        if days is None or days < 0 or days > DEADLINE_HORIZON_DAYS:
+            continue
+
+        items.append({
+            "kind": "learning_step",
+            "id": step.id,
+            "title": step.title,
+            "status": step.status,
+            "days_left": days,
+        })
+
     items.sort(key=lambda item: item["days_left"])
 
     return items
@@ -307,6 +351,11 @@ def _deadline_candidates(db, today: date) -> list[dict]:
 
     for item in collect_deadlines(db, today):
         if item["days_left"] > DEADLINE_URGENT_DAYS:
+            continue
+
+        # 프로젝트 · 학습 단계는 아래 dated 후보가 이미 할 일로 만든다.
+        # 여기서 또 만들면 같은 일이 계획에 두 번 앉는다.
+        if item["kind"] in ("project", "learning_step"):
             continue
 
         if item["kind"] == "application":
@@ -478,9 +527,22 @@ def _due_learning_candidates(db, today: date) -> list[dict]:
 
     단계에 마감일(due_date)이 있으면 그 단계를, 경로에 목표일(target_date)만
     있으면 그 경로의 다음 단계를 본다. 14일 안에 들어온 것만.
+
+    **루틴이 맡은 경로는 빼둔다.** 루틴이 이미 오늘 몫 한 단계를 떼어 두기
+    때문이다. 실제로 났다 — 하루에 한 단계씩 짠 사흘짜리 시험 계획에서
+    오늘 것은 루틴이, 내일 · 모레 것은 마감 학습이 각각 올려 하루 계획에
+    사흘이 한꺼번에 들어왔다.
     """
     horizon = today + timedelta(days=DEADLINE_HORIZON_DAYS)
     found = []
+
+    routine_paths = {
+        path_id
+        for (path_id,) in db.query(models.Routine.learning_path_id).filter(
+            models.Routine.active.is_(True),
+            models.Routine.learning_path_id.isnot(None),
+        )
+    }
 
     steps = (
         db.query(models.LearningStep)
@@ -492,6 +554,8 @@ def _due_learning_candidates(db, today: date) -> list[dict]:
         .all()
     )
     for step in steps:
+        if step.learning_path_id in routine_paths:
+            continue
         found.append((step.due_date, step))
 
     paths = (
@@ -504,6 +568,8 @@ def _due_learning_candidates(db, today: date) -> list[dict]:
         .all()
     )
     for path in paths:
+        if path.id in routine_paths:
+            continue
         step = routine_service.next_step(path)
         if step is not None and step.due_date is None:
             found.append((path.target_date, step))
@@ -793,6 +859,10 @@ def generate_plan(
     today = today or date.today()
     intensity = get_intensity(intensity_name)
 
+    # 세우는 순간의 1위 스킬을 같이 남긴다. 나중에 1위가 바뀌면 화면이 "계획이 낡았다" 고 말한다.
+    priorities = priority_service.build_skill_priorities(db)
+    focus_skill = priorities[0]["skill"].name if priorities else None
+
     # 완료/건너뜀은 기록으로 남긴다. planned 만 다시 짠다.
     (
         db.query(models.DailyPlanTask)
@@ -856,6 +926,7 @@ def generate_plan(
             carried_from=item.get("carried_from"),
             plan_available_minutes=available_minutes,
             plan_intensity=intensity_name,
+            plan_focus_skill=focus_skill,
             learning_step_id=item.get("learning_step_id"),
             project_id=item.get("project_id"),
             learning_resource_id=item.get("learning_resource_id"),
@@ -977,6 +1048,50 @@ def serialize_task(task) -> dict:
     }
 
 
+def plan_outdated(db, tasks) -> dict | None:
+    """계획을 세운 뒤 판단의 재료가 바뀌었는가.
+
+    계획은 세운 순간의 판단으로 저장된다. 실제로 났다 — 계획을 세운 뒤 고용24 공고가
+    들어와 기회가 4건에서 10건이 됐고, 1위가 Machine Learning 에서 PyTorch 로 바뀌었다.
+    그런데 할 일의 이유는 "Machine Learning 이 1위 · 4건 중 4건" 을, 옆의 "왜 이 계획인가" 는
+    "PyTorch · 10건 중 3건" 을 말했다. 계산은 둘 다 맞았고, 낡았다고 말하지 않은 게 문제였다.
+
+    다시 짜지는 않는다. 끝낸 일이 섞여 있고, 다시 세울지는 사람이 정한다.
+    """
+    planned = [task for task in tasks if task.status == "planned"]
+    if not planned:
+        return None
+
+    made_at = min(task.created_at for task in planned)
+    before = next((task.plan_focus_skill for task in planned if task.plan_focus_skill), None)
+
+    priorities = priority_service.build_skill_priorities(db)
+    now = priorities[0]["skill"].name if priorities else None
+
+    new_opportunities = (
+        db.query(models.Opportunity)
+        .filter(models.Opportunity.collected_at > made_at)
+        .count()
+    )
+
+    reasons = []
+    if before and now and before != now:
+        # 스킬 이름 뒤에 조사를 붙이지 않는다 — "Machine Learning 로" 처럼 틀린다.
+        reasons.append(f"우선순위 1위가 바뀌었어요 ({before} → {now})")
+    if new_opportunities:
+        reasons.append(f"기회가 {new_opportunities}건 새로 들어왔어요")
+
+    if not reasons:
+        return None
+
+    return {
+        "reasons": reasons,
+        "focus_before": before,
+        "focus_now": now,
+        "new_opportunities": new_opportunities,
+    }
+
+
 def build_plan(
     db,
     today: date | None = None,
@@ -1017,6 +1132,8 @@ def build_plan(
         "tasks": [serialize_task(t) for t in tasks],
         # 사흘 넘게 밀린 것. 계획에는 안 올라가고 여기서 물어본다.
         "stale": stale_carry_overs(db, today),
+        # 계획을 세운 뒤 1위 스킬이 바뀌었거나 기회가 새로 들어왔으면 그 이유. 아니면 None.
+        "outdated": plan_outdated(db, tasks),
     }
 
 
@@ -1051,6 +1168,49 @@ def release_plan_tasks(db, column, value) -> dict:
             removed += 1
 
     return {"removed": removed, "kept": kept}
+
+
+def reopen_task(db, task) -> dict:
+    """완료 · 넘김을 되돌린다 — 잘못 눌렀으면 돌릴 수 있어야 한다.
+
+    실제로 났다: 코테를 안 했는데 완료를 눌렀고, 되돌릴 방법이 없어 이번 주
+    "했다" 에 거짓 하루가 남았다. 되돌릴 때는 완료가 바꾼 것도 같이 되돌린다.
+
+    - 루틴: 그날 기록을 지운다.
+    - 학습 단계: 이 완료가 단계를 끝냈으면(같은 순간에 끝났으면) 진행 중으로 되돌린다.
+      그 전부터 끝나 있던 단계는 건드리지 않는다.
+    """
+    effects = []
+    was_done = task.status == "done"
+    finished_at = task.completed_at
+
+    if was_done and task.routine is not None:
+        if routine_service.unrecord(db, task.routine, task.plan_date):
+            effects.append(f"{task.routine.title} 그날 기록을 지웠어요")
+
+    step = task.learning_step
+    if (
+        was_done
+        and step is not None
+        and step.status == learning_service.COMPLETED
+        and step.completed_at is not None
+        and finished_at is not None
+        and abs((step.completed_at - finished_at).total_seconds()) < 5
+    ):
+        step.status = learning_service.IN_PROGRESS
+        step.completed_at = None
+        step.progress_percent = 0
+        db.flush()
+        learning_service.recalculate_path_progress(db, step.learning_path, commit=False)
+        effects.append(f"학습 단계 '{step.title}' 을(를) 진행 중으로 되돌렸어요")
+
+    task.status = "planned"
+    task.completed_at = None
+
+    db.commit()
+    db.refresh(task)
+
+    return {"task": serialize_task(task), "effects": effects}
 
 
 def complete_task(db, task, count: int | None = None):

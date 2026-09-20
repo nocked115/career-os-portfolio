@@ -12,6 +12,7 @@ from ..database import get_db
 from ..services import opportunity as opportunity_service
 from ..services import opportunity_map as map_service
 from ..services import posting_parser
+from ..services import url_import
 from ..services import today as today_service
 from ._common import apply_update, delete_instance, ensure_exists, get_or_404
 
@@ -113,6 +114,20 @@ def collect_opportunities(db: Session = Depends(get_db)):
     return opportunity_service.collect_all(db)
 
 
+@router.post("/review-fit")
+def review_fit(db: Session = Depends(get_db)):
+    """이미 들여온 공고를 모집 부문으로 다시 판단한다. 데이터 · AI 직무가 아니면 보관함으로."""
+    return opportunity_service.review_fit(db)
+
+
+@router.post("/{opportunity_id}/keep")
+def keep_opportunity(opportunity_id: int, db: Session = Depends(get_db)):
+    """자동으로 뺀 공고를 "그래도 검토" 로 되살린다. 다시 자동으로 빼지 않는다."""
+    opportunity = get_or_404(db, models.Opportunity, opportunity_id, "Opportunity")
+    opportunity_service.keep_anyway(db, opportunity)
+    return opportunity_service.score_opportunity(db, opportunity)
+
+
 @router.post("/relink-skills")
 def relink_skills(db: Session = Depends(get_db)):
     """등록된 모든 기회의 스킬 연결을 다시 만든다.
@@ -127,7 +142,8 @@ def relink_skills(db: Session = Depends(get_db)):
     """
     changed = []
 
-    for opportunity in db.query(models.Opportunity).all():
+    # 직무가 달라 자동으로 뺀 공고는 다시 잇지 않는다 — 영업 공고가 수요로 세어진다.
+    for opportunity in db.query(models.Opportunity).filter(models.Opportunity.filtered_reason == "").all():
         before = {skill.id for skill in opportunity.skills}
 
         opportunity_service.link_skills(db, opportunity)
@@ -160,6 +176,38 @@ def parse_posting(
     공고 사이트를 앱이 열지 않는다(약관). 사람이 읽은 글만 다룬다.
     """
     return posting_parser.parse_posting(db, payload.text, payload.url)
+
+
+@router.post("/fetch-url")
+def fetch_posting_from_url(
+    payload: schemas.PostingUrlRequest,
+    db: Session = Depends(get_db),
+):
+    """공고 주소 하나를 가져와 미리보기를 만든다. 저장하지 않는다.
+
+    목록을 훑지 않는다 — 사람이 고른 주소 한 건만. robots.txt 가 막으면 가져오지 않고,
+    본문을 복사해 붙여넣으라고 답한다.
+    """
+    try:
+        text = url_import.fetch_posting(payload.url)
+    except url_import.ImportError_ as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    preview = posting_parser.parse_posting(db, text, payload.url)
+    preview["text"] = text
+
+    return preview
+
+
+@router.post("/split")
+def split_postings(payload: schemas.PostingParseRequest):
+    """붙여넣은 글을 공고 단위로 자른다 — 알림 메일 하나에 여러 건이 들어 있을 때.
+
+    저장하지 않는다. 건마다 사람이 미리보기를 보고 넣는다.
+    """
+    blocks = posting_parser.split_postings(payload.text)
+
+    return {"count": len(blocks), "blocks": blocks}
 
 
 @router.get("/matches")
@@ -261,6 +309,9 @@ def delete_opportunity(
     released = today_service.release_plan_tasks(
         db, models.DailyPlanTask.opportunity_id, opportunity_id
     )
+
+    # 수집 공고는 번호만 남긴다 — 다음 날 아침 수집이 다시 들이지 않게.
+    opportunity_service.dismiss(db, opportunity)
 
     result = delete_instance(opportunity, db)
     result["plan_tasks"] = released

@@ -19,7 +19,7 @@ export default function DemoBanner({ readOnly }) {
 
       <span className="demo-banner-text">
         {STATIC_DEMO
-          ? `가상 데이터로 만든 정적 데모예요${STATIC_DEMO_DATE ? ` (${STATIC_DEMO_DATE} 기준 — 날짜와 D-day 도 그날 기준)` : ""}. 모든 화면을 둘러볼 수 있지만 저장되지 않아요.`
+          ? `가상 데이터로 만든 정적 데모예요${STATIC_DEMO_DATE ? ` (${STATIC_DEMO_DATE} 기준 — 날짜와 D-day 도 그날 기준)` : ""}. 오늘 계획의 체크 · 넘기기 · 되돌리기와 학습 체크리스트는 눌러 볼 수 있어요 — 브라우저에만 남고, 새로고침하면 처음으로 돌아갑니다.`
           : "구경용 데이터입니다. 화면은 모두 볼 수 있지만 저장되지 않습니다."}
       </span>
     </div>
