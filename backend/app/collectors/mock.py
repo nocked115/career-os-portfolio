@@ -4,6 +4,9 @@
 새 수집원을 추가할 때 이 파일이 참고 구현이다.
 """
 
+import os
+from datetime import date, timedelta
+
 from .. import auth
 from . import base
 
@@ -25,12 +28,30 @@ def is_available() -> bool:
     있었고, 지운 legacy Job 도 함께 돌아와 있었다. 파일 첫 줄에
     "로컬 개발용" 이라고 쓰여 있었지만 코드는 어디서나 True 를
     돌려주고 있었다.
+
+    **로컬에서도 기본은 끈다.** 배포본을 노트북으로 옮기고 나니 로컬이
+    곧 실사용이 됐다. `CAREER_OS_ENV` 는 development 라 위 조건만으로는
+    켜지는데, 그러면 수집할 때마다 가짜 공고가 진짜 데이터에 섞인다
+    (2026-10-07 에 실제로 2건 들어왔다).
+
+    쓰려면 `CAREER_OS_MOCK=1` 을 준다. 개발용이라는 뜻이 이름에 드러나야
+    한다 — "production 이 아니면" 은 더 이상 "실사용이 아니면" 이 아니다.
     """
-    return not auth.is_production()
+    if auth.is_production():
+        return False
+
+    return os.getenv("CAREER_OS_MOCK", "0") == "1"
 
 
 def fetch() -> list[dict]:
-    """원본 형태 그대로 돌려준다. 정규화는 normalize() 가 한다."""
+    """원본 형태 그대로 돌려준다. 정규화는 normalize() 가 한다.
+
+    마감은 **오늘 기준**으로 만든다. 날짜를 박아두면 그날이 지난 뒤
+    "마감 지난 공고" 가 되어 수요 집계에서 빠지고, 테스트가 날짜에 묶인다
+    (2026-09-30 이 지나자 실제로 깨졌다). 샘플은 늘 열려 있어야 한다.
+    """
+    today = date.today()
+
     return [
         {
             "id": "mock-job-1",
@@ -39,7 +60,7 @@ def fetch() -> list[dict]:
             "role": "data_scientist",
             "employment_type": "intern",
             "url": "https://example.com/mock-job",
-            "deadline": "2026-09-30",
+            "deadline": (today + timedelta(days=30)).isoformat(),
             "location": "Seoul",
             "description": (
                 "Python, SQL, Statistics and "
@@ -52,7 +73,7 @@ def fetch() -> list[dict]:
             "title": "AI 데이터 분석 공모전",
             "kind": "competition",
             "url": "https://example.com/mock-competition",
-            "deadline": "2026-10-15",
+            "deadline": (today + timedelta(days=45)).isoformat(),
             "description": (
                 "Python, Pandas, Machine Learning 을 활용한 "
                 "데이터 분석 공모전입니다."

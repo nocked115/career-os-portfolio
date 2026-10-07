@@ -1,7 +1,7 @@
 """루틴이 맡은 경로는 계획이 따로 넣지 않는다.
 
-하루에 한 단계씩 짠 사흘짜리 계획에서, 오늘 것은 루틴이 올리고
-내일 · 모레 것은 "마감 있는 학습" 이 올려 하루에 사흘이 다 들어왔다.
+하루에 한 단계씩 짠 사흘짜리 계획에서, 내일 · 모레 것까지 "마감 있는 학습" 으로 올라와
+하루에 사흘이 다 들어왔다. 루틴은 계획이 아니라 고정 칸에 있고, 그 경로는 루틴이 맡는다.
 """
 
 from datetime import date, timedelta
@@ -27,7 +27,7 @@ def _path_of_three_days(db, today):
     return path
 
 
-def test_only_the_routine_brings_todays_step(db_session):
+def test_the_routine_owns_its_path_so_the_plan_leaves_it_alone(db_session):
     today = date.today()
     path = _path_of_three_days(db_session, today)
 
@@ -38,12 +38,11 @@ def test_only_the_routine_brings_todays_step(db_session):
     db_session.commit()
 
     plan = today_service.generate_plan(db_session, available_minutes=600, today=today)
-    from_this_path = [
-        task["title"] for task in plan["tasks"] if "D-" in task["title"]
-    ]
 
-    assert len(from_this_path) == 1
-    assert from_this_path[0].startswith("코딩테스트")
+    # 루틴이 맡은 경로의 단계는 계획에 올라오지 않는다 — 루틴 칸이 그 경로를 연다.
+    assert [task["title"] for task in plan["tasks"] if "D-" in task["title"]] == []
+    assert [row["title"] for row in plan["routines"]] == ["코딩테스트"]
+    assert plan["routines"][0]["next_step"]["title"] == "D-3"
 
 
 def test_without_a_routine_the_dated_steps_still_come_up(db_session):

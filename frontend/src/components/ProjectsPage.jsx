@@ -26,9 +26,21 @@ import "../Evidence.css"
 
 const FILTERS = [
   { key: "active", label: "진행 중" },
+  { key: "evidence", label: "심화 · 증거" },
+  { key: "practice", label: "학습용" },
   { key: "done", label: "완료" },
   { key: "all", label: "전체" }
 ]
+
+/* 프로젝트가 무엇을 위한 것인가. 학습용을 증거로 세면 "과제를 했으니 그 스킬은 덜 급하다" 가
+   되는데, 정작 포트폴리오에 보여줄 것은 없다. 그래서 계획에는 올리되 증거로는 세지 않는다. */
+const PURPOSES = [
+  { key: "evidence", label: "심화 · 커리어 증거", hint: "포트폴리오에 쓸 것. 스킬 증거로 셉니다" },
+  { key: "practice", label: "학습용 · 수업 과제", hint: "오늘 계획에는 오르지만 증거로는 안 셉니다" },
+  { key: "hobby", label: "취미", hint: "계획에도 올리지 않습니다" }
+]
+
+const PURPOSE_LABEL = Object.fromEntries(PURPOSES.map((row) => [row.key, row.label]))
 
 const PROGRESS_STEPS = [0, 25, 50, 75, 100]
 
@@ -237,7 +249,11 @@ function ProjectsPage({ onChanged }) {
 
   const [filter, setFilter] = useState("active")
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: "", description: "", target_date: "" })
+  const [form, setForm] = useState({
+    name: "", description: "", target_date: "", purpose: "evidence",
+    // 아직 언제 할지 모르는 기획안으로 둘지. 켜면 오늘 계획에 안 올라온다.
+    idea: false, why: ""
+  })
   const [editingId, setEditingId] = useState(null)
   const [dismissed, setDismissed] = useState([])
 
@@ -319,15 +335,23 @@ function ProjectsPage({ onChanged }) {
           name,
           description: form.description.trim(),
           target_date: form.target_date,
-          status: "in_progress",
-          career_related: true
+          // 기획안은 시작한 것이 아니다. 오늘 계획에도 올라오지 않는다.
+          status: form.idea ? "idea" : "in_progress",
+          career_related: form.purpose !== "hobby",
+          purpose: form.purpose,
+          why: form.why.trim()
         }),
-      `'${name}' 프로젝트를 만들었어요. 스킬을 연결하면 무엇을 증명하는지 셀 수 있어요.`,
+      form.idea
+        ? `'${name}' 을(를) 하고자 하는 프로젝트에 뒀어요. 시작할 때 "시작하기" 를 누르세요.`
+        : `'${name}' 프로젝트를 만들었어요. 스킬을 연결하면 무엇을 증명하는지 셀 수 있어요.`,
       "프로젝트를 만들지 못했습니다. 같은 이름이 이미 있을 수 있어요."
     )
 
     if (ok) {
-      setForm({ name: "", description: "", target_date: "" })
+      setForm({
+        name: "", description: "", target_date: "", purpose: "evidence",
+        idea: false, why: ""
+      })
       setShowForm(false)
     }
   }
@@ -481,9 +505,14 @@ function ProjectsPage({ onChanged }) {
     )
   }
 
+  // 기획안은 아래 "하고자 하는 프로젝트" 칸에 따로 둔다.
+  const ideas = projects.filter((project) => project.status === "idea")
   const shown = projects.filter((project) => {
+    if (project.status === "idea") return false
     if (filter === "done") return isDone(project)
     if (filter === "active") return !isDone(project)
+    if (filter === "evidence") return (project.purpose ?? "evidence") === "evidence"
+    if (filter === "practice") return project.purpose === "practice"
     return true
   })
 
@@ -531,6 +560,43 @@ function ProjectsPage({ onChanged }) {
                   onChange={(event) => setForm({ ...form, description: event.target.value })}
                 />
               </label>
+              <label className="learn-field prj-wide">
+                <span>무엇을 위한 프로젝트인가</span>
+                <select
+                  className="path-select"
+                  value={form.purpose}
+                  onChange={(event) => setForm({ ...form, purpose: event.target.value })}
+                >
+                  {PURPOSES.map((row) => (
+                    <option key={row.key} value={row.key}>
+                      {row.label} — {row.hint}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="learn-field prj-wide">
+                <span>왜 하려는가</span>
+                <textarea
+                  className="agent-input"
+                  rows={2}
+                  placeholder="어떤 질문에 답하려는지 · 무엇을 증명하려는지. 나중에 공고에 쓸지 판단하는 근거가 됩니다."
+                  value={form.why}
+                  onChange={(event) => setForm({ ...form, why: event.target.value })}
+                />
+              </label>
+              <label className="learn-field prj-wide prj-idea-toggle">
+                <input
+                  type="checkbox"
+                  checked={form.idea}
+                  onChange={(event) => setForm({ ...form, idea: event.target.checked })}
+                />
+                <span>
+                  아직 언제 할지 모르겠어요 — 기획안으로만 둡니다
+                  <em className="prj-idea-why">
+                    오늘 계획에 올라오지 않아요. 적어두는 것이 부담이 되면 안 되니까요.
+                  </em>
+                </span>
+              </label>
               <label className="learn-field">
                 <span>목표 완료일</span>
                 <input
@@ -552,6 +618,51 @@ function ProjectsPage({ onChanged }) {
           </div>
         )}
       </section>
+
+      {/* 하고자 하는 프로젝트 — 언제 할지 모르지만 하고 싶은 것.
+          오늘 계획에는 올라오지 않는다. "왜 하려는가" 가 나중에 공고에 쓸지 판단하는 근거가 된다. */}
+      {ideas.length > 0 && (
+        <section className="card prj-ideas" aria-label="하고자 하는 프로젝트">
+          <p className="prj-ideas-head">
+            하고자 하는 프로젝트 {ideas.length}개
+            <span className="prj-ideas-why">
+              아직 시작 안 한 기획안 — 오늘 계획에는 올라오지 않아요
+            </span>
+          </p>
+
+          {ideas.map((project) => (
+            <div className="prj-idea-row" key={project.id}>
+              <div className="prj-idea-body">
+                <strong>{project.name}</strong>
+                {project.description && (
+                  <span className="muted">{project.description}</span>
+                )}
+                {project.why ? (
+                  <p className="prj-idea-reason">왜 — {project.why}</p>
+                ) : (
+                  <p className="prj-idea-reason prj-idea-missing">
+                    왜 하려는지 아직 안 적었어요. 적어두면 공고에 쓸지 판단할 때 쓰입니다.
+                  </p>
+                )}
+              </div>
+              <Button
+                variant="secondary"
+                writes
+                disabled={working}
+                onClick={() =>
+                  run(
+                    () => api.projects.update(project.id, { status: "in_progress" }),
+                    `'${project.name}' 을(를) 시작했어요. 이제 오늘 계획에 올라옵니다.`,
+                    "시작하지 못했습니다."
+                  )
+                }
+              >
+                시작하기
+              </Button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {projects.length > 0 && (
         <div className="learn-tabs" role="tablist" aria-label="프로젝트 거르기">
@@ -602,6 +713,11 @@ function ProjectsPage({ onChanged }) {
             <div className="prj-head">
               <div className="prj-head-main">
                 <strong className="prj-name">{project.name}</strong>
+                {project.purpose && project.purpose !== "evidence" && (
+                  <StatusBadge tone={project.purpose === "practice" ? "action" : "neutral"}>
+                    {PURPOSE_LABEL[project.purpose] ?? project.purpose}
+                  </StatusBadge>
+                )}
                 {project.description && <p className="prj-desc">{project.description}</p>}
                 {project.skills.length > 0 ? (
                   <div className="prj-skills">

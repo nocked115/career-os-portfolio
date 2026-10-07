@@ -329,6 +329,72 @@ def test_skip_ends_the_task(client):
     assert body["status"] == "skipped"
 
 
+def test_a_plan_row_can_be_edited_in_place(client):
+    """앱이 적어 둔 시간이 틀리면 고칠 자리가 있어야 한다.
+
+    고칠 수 없으면 사람은 숫자를 무시하게 되고, 그 숫자 위에서 세는
+    "남은 시간" 도 같이 무의미해진다.
+    """
+    added = client.post(
+        "/today/tasks",
+        json={"kind": "custom", "title": "B 발표 준비", "minutes": 60},
+    ).json()
+    task_id = added["plan"]["tasks"][0]["id"]
+
+    body = client.patch(
+        f"/today/tasks/{task_id}",
+        json={"title": "B 발표 자료만 훑기", "minutes": 20},
+    ).json()
+
+    assert body["title"] == "B 발표 자료만 훑기"
+    assert body["minutes"] == 20
+
+    # 하나만 보내면 나머지는 그대로 둔다.
+    only_time = client.patch(f"/today/tasks/{task_id}", json={"minutes": 35}).json()
+    assert only_time["title"] == "B 발표 자료만 훑기"
+    assert only_time["minutes"] == 35
+
+
+def test_a_finished_row_is_not_edited(client):
+    """이미 센 시간을 되돌아가 바꾸면 그날 기록이 사실과 달라진다."""
+    added = client.post(
+        "/today/tasks", json={"kind": "custom", "title": "읽기", "minutes": 30}
+    ).json()
+    task_id = added["plan"]["tasks"][0]["id"]
+    client.post(f"/today/tasks/{task_id}/complete")
+
+    assert client.patch(f"/today/tasks/{task_id}", json={"minutes": 10}).status_code == 409
+
+
+def test_a_plan_row_can_be_deleted(client):
+    """잘못 넣은 줄은 자국도 남기고 싶지 않다 — 안 한 일이 아니라 없던 일이다."""
+    added = client.post(
+        "/today/tasks", json={"kind": "custom", "title": "B 발표 준비", "minutes": 60}
+    ).json()
+    task_id = added["plan"]["tasks"][0]["id"]
+
+    body = client.delete(f"/today/tasks/{task_id}").json()
+
+    assert body["deleted"] is True
+    # 직접 넣은 줄이라 다시 짜도 돌아오지 않는다.
+    assert body["was_generated"] is False
+    assert [t["id"] for t in body["plan"]["tasks"]] == []
+    assert client.delete(f"/today/tasks/{task_id}").status_code == 404
+
+
+def test_deleting_a_generated_row_says_it_can_come_back(client):
+    """지우기가 고장난 게 아니라 아직 할 일이라는 뜻이다. 그걸 말해 준다."""
+    aws = _skill(client, "AWS")
+    _demand(client, [aws])
+    _path_with_step(client, aws)
+
+    plan = client.post("/today/plan").json()
+    body = client.delete(f"/today/tasks/{plan['tasks'][0]['id']}").json()
+
+    assert body["deleted"] is True
+    assert body["was_generated"] is True
+
+
 def test_unknown_task_returns_404(client):
     assert client.post("/today/tasks/9999/complete").status_code == 404
 
@@ -916,3 +982,83 @@ def test_school_deadlines_show_in_the_band(client, db_session):
     plan = client.post("/today/plan?available_minutes=300&intensity=normal").json()
     titles = [task["title"] for task in plan["tasks"]]
     assert len([t for t in titles if "3주차 발표" in t]) <= 1
+
+
+def test_a_skipped_item_does_not_come_back_when_the_plan_is_rebuilt(client, db_session):
+    """넘긴 공고가 계획을 다시 세울 때마다 새 줄로 들어왔다 — 같은 공고가 세 줄이 됐다."""
+    from datetime import date, datetime, timedelta
+
+    from app import models
+
+    opportunity = models.Opportunity(
+        opportunity_type="competition", title="AI 금융 공모전", source="manual",
+        status="interested", deadline=datetime.now() + timedelta(days=2),
+    )
+    db_session.add(opportunity)
+    db_session.commit()
+
+    first = client.post("/today/plan?available_minutes=120&intensity=normal").json()
+    task = next(t for t in first["tasks"] if "AI 금융 공모전" in t["title"])
+
+    client.post(f"/today/tasks/{task['id']}/skip")
+
+    again = client.post("/today/plan?available_minutes=120&intensity=normal").json()
+    rows = [t for t in again["tasks"] if "AI 금융 공모전" in t["title"]]
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "skipped"
+
+
+def test_duplicates_already_saved_are_folded_into_one(client, db_session):
+    """규칙을 고치기 전에 들어온 중복 줄도 계획을 다시 세울 때 접는다."""
+    from datetime import date, datetime, timedelta
+
+    from app import models
+
+    opportunity = models.Opportunity(
+        opportunity_type="competition", title="AI 공모전", source="manual",
+        status="interested", deadline=datetime.now() + timedelta(days=2),
+    )
+    db_session.add(opportunity)
+    db_session.flush()
+
+    for position, status in enumerate(["skipped", "skipped", "planned"]):
+        db_session.add(models.DailyPlanTask(
+            plan_date=date.today(), position=position, task_type="opportunity",
+            title="지원할지 정하기 — AI 공모전", minutes=15, reason="마감 2일",
+            status=status, opportunity_id=opportunity.id,
+        ))
+    db_session.commit()
+
+    plan = client.post("/today/plan?available_minutes=120&intensity=normal").json()
+    rows = [task for task in plan["tasks"] if task["opportunity_id"] == opportunity.id]
+
+    assert len(rows) == 1
+
+
+def test_duplicates_show_as_one_row_without_rebuilding(client, db_session):
+    """읽기만 해도 한 줄로 보인다. 지우는 것은 계획을 다시 세울 때 한다."""
+    from datetime import date, datetime, timedelta
+
+    from app import models
+
+    opportunity = models.Opportunity(
+        opportunity_type="competition", title="AI 공모전", source="manual",
+        status="interested", deadline=datetime.now() + timedelta(days=2),
+    )
+    db_session.add(opportunity)
+    db_session.flush()
+
+    for position, status in enumerate(["skipped", "skipped"]):
+        db_session.add(models.DailyPlanTask(
+            plan_date=date.today(), position=position, task_type="opportunity",
+            title="지원할지 정하기 — AI 공모전", minutes=15, reason="마감 2일",
+            status=status, opportunity_id=opportunity.id,
+        ))
+    db_session.commit()
+
+    plan = client.get("/today/plan").json()
+
+    assert len([t for t in plan["tasks"] if t["opportunity_id"] == opportunity.id]) == 1
+    # 읽기는 지우지 않는다.
+    assert db_session.query(models.DailyPlanTask).count() == 2

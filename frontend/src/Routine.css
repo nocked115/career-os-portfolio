@@ -198,3 +198,36 @@
   font-size: 13px;
   color: var(--text-soft);
 }
+
+/* 몰랐던 것 — 모아보기.
+   점 일곱 개가 "이번 주 어땠나" 라면, 이건 "그때 뭘 몰랐나" 다.
+   코테 전날 훑어보는 자리라 날짜를 앞에 둔다. */
+.rt-learned {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, #e5e7eb);
+}
+
+.rt-learned-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.rt-learned-list li {
+  padding: 8px 10px;
+  border-left: 2px solid var(--line, #e5e7eb);
+}
+
+.rt-learned-list p {
+  margin: 0;
+}
+
+.rt-learned-list p + p {
+  margin-top: 2px;
+  white-space: pre-wrap;
+}

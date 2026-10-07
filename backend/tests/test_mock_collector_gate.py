@@ -33,7 +33,9 @@ def test_production_collection_creates_nothing(db_session, monkeypatch):
 
     result = opportunity_service.collect_all(db_session)
 
-    assert result["sources"] == []
+    # 진짜 수집원(고용24 · 기업 채용 보드)은 실사용 배포에서 돌아야 한다.
+    # 여기서 막아야 하는 건 가짜 데이터를 만드는 mock 하나다.
+    assert "mock" not in [source["source"] for source in result["sources"]]
     assert result["created"] == 0
     assert db_session.query(models.Opportunity).count() == before
 

@@ -220,8 +220,10 @@ def test_today_shows_the_next_items_of_a_learning_task(client, db_session):
 
     serialized = today_service.serialize_task(task)
 
-    assert serialized["checklist"] == {
-        "done": 0,
-        "total": 3,
-        "next": ["`u.user` / `u.item` 로드", "Gradio 앱 실행", "TF-IDF 벡터화"],
-    }
+    assert serialized["checklist"]["done"] == 0
+    assert serialized["checklist"]["total"] == 3
+    assert serialized["checklist"]["next"] == [
+        "`u.user` / `u.item` 로드", "Gradio 앱 실행", "TF-IDF 벡터화"
+    ]
+    # 오늘 몫도 같이 온다 — 단계에 시간이 없으면 자르지 않고 전부.
+    assert serialized["checklist"]["today"]["count"] == 3

@@ -16,9 +16,9 @@ def _skill(db_session, name, level=0):
     return skill
 
 
-def _opportunity(db_session, title, skills=()):
+def _opportunity(db_session, title, skills=(), opportunity_type="job"):
     opportunity = models.Opportunity(
-        opportunity_type="job",
+        opportunity_type=opportunity_type,
         title=title,
         source="test",
     )
@@ -55,6 +55,27 @@ def test_percentage_is_computed_from_stored_opportunities(db_session):
     assert signals["AWS"]["opportunity_count"] == 2
     assert signals["AWS"]["percentage"] == 50
     assert signals["SQL"]["percentage"] == 25
+
+
+def test_job_fairs_are_not_demand(db_session):
+    """채용 박람회는 공고가 아니다 — 모집 직무가 없어 요구 역량도 없다.
+
+    수집할 때 이미 `job_event` 로 나눠 저장하는데 수요를 셀 때는 안 가렸다.
+    실제 데이터에서 108건 중 17건이 이것이었고, 전부 스킬이 하나도 안 붙은
+    채로 분모에만 들어가 모든 스킬의 비율을 낮췄다.
+    """
+    aws = _skill(db_session, "AWS")
+
+    _opportunity(db_session, "진짜 공고", [aws])
+    _opportunity(db_session, "2026 수원시 일자리 박람회", opportunity_type="job_event")
+    _opportunity(db_session, "2026 부천 잡페스타", opportunity_type="job_event")
+
+    assert market_service.count_opportunities(db_session) == 1
+
+    signal = market_service.build_signals(db_session)[0]
+
+    # 1/1 이다. 박람회를 세면 1/3 = 33% 가 된다.
+    assert signal["percentage"] == 100
 
 
 def test_signals_are_sorted_by_demand(db_session):

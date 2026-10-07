@@ -17,11 +17,21 @@ from .agents.tools import (
     get_jobs,
 )
 from .services import market as market_service
+from .services import tidy as tidy_service
 from .services import opportunity as opportunity_service
 
 
 def run_career_automation(db):
     collection = opportunity_service.collect_all(db)
+
+    # 받자마자 치운다. 수집원이 다섯이라 같은 공고가 여러 줄로 들어오고,
+    # 서울 밖 박람회도 매번 새로 들어온다. 사람이 tidy 를 돌리기 전까지
+    # 그것들이 수요의 분모에 앉아 있고, 심하면 추천 자리까지 차지한다
+    # (실제로 "부천 중장년 취업박람회" 가 맨 위 추천으로 떴다).
+    #
+    # 점수를 매기기 **전에** 한다 — 치울 것을 굳이 점수까지 내서 버릴
+    # 이유가 없다.
+    tidied = tidy_service.apply(db)
 
     matches = opportunity_service.score_all(db)
 
@@ -39,6 +49,11 @@ def run_career_automation(db):
     ]
 
     return {
+        # 받자마자 치운 것 — 중복 · 마감 · 서울 밖 행사.
+        "tidied": {
+            "archived": tidied["will_archive"],
+            "closed": tidied["will_close"],
+        },
         "status": "completed",
 
         # 기존 대시보드가 읽는 키. 형태를 유지한다.

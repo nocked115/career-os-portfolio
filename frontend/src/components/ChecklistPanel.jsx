@@ -328,11 +328,17 @@ export default function ChecklistPanel({
   checklist,
   goals = [],
   isCompleted,
+  todaySlice = null,
   onUpdated,
   onStarted,
   onComplete
 }) {
   const readOnly = useReadOnly()
+
+  /* 오늘 몫. 오늘 계획이 이 단계에 준 시간만큼 잘린 범위다.
+     오늘 화면에 할 일을 다 늘어놓지 않고 여기서 테두리로 보인다 —
+     같은 목록이 두 군데 있으면 어느 쪽을 보고 체크할지 알 수 없다. */
+  const todayIds = new Set(todaySlice?.item_ids ?? [])
 
   const [importing, setImporting] = useState(false)
   const [draft, setDraft] = useState("")
@@ -465,6 +471,21 @@ export default function ChecklistPanel({
         <ProgressBar value={progress.done} max={progress.total} label="체크리스트 진행" />
       )}
 
+      {/* 오늘 몫. 오늘 계획이 이 단계에 준 시간만큼만 잘랐다.
+          아래 목록에서 그 범위에 테두리가 쳐진다. */}
+      {todaySlice && (
+        <p className="ck-today-head">
+          <strong>
+            오늘은 {todaySlice.from_number}번부터 {todaySlice.to_number}번까지
+          </strong>
+          <span className="muted">
+            {" "}— {todaySlice.count}개
+            {todaySlice.minutes != null && ` · 약 ${todaySlice.minutes}분`}
+            {todaySlice.finishes_step && " · 이걸로 이 주차가 끝나요"}
+          </span>
+        </p>
+      )}
+
       {error && (
         <Notice tone="bad" onClose={() => setError(null)}>
           {error}
@@ -516,7 +537,14 @@ export default function ChecklistPanel({
 
           <ul className="ck-list">
             {section.items.map((item) => (
-              <li className={item.done ? "ck-item ck-done" : "ck-item"} key={item.id}>
+              <li
+                className={[
+                  "ck-item",
+                  item.done ? "ck-done" : "",
+                  todayIds.has(item.id) ? "ck-today" : "",
+                ].filter(Boolean).join(" ")}
+                key={item.id}
+              >
                 <label className="ck-row">
                   <input
                     type="checkbox"

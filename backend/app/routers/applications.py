@@ -39,6 +39,11 @@ def create_application(
     db.commit()
     db.refresh(application)
 
+    # 지원서를 만들었으면 그 공고의 "지원할지 정하기" 는 끝난 일이다.
+    # 다시 짤 때까지 기다리면 이미 지원한 공고가 오늘 할 일로 남아 있다.
+    if application.opportunity_id is not None:
+        today_service.settle_for_opportunity(db, application.opportunity_id)
+
     return application
 
 

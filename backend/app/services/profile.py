@@ -42,7 +42,7 @@ def update_profile(db, name: str | None = None, **links) -> models.Profile:
     if name is not None:
         profile.name = name.strip()
 
-    for field in ("github_url", "blog_url"):
+    for field in ("github_url", "blog_url", "portfolio_url"):
         if links.get(field) is not None:
             setattr(profile, field, links[field].strip())
 
@@ -102,6 +102,7 @@ def build_profile(db, today: date | None = None) -> dict:
         "has_name": bool(profile.name),
         "github_url": profile.github_url,
         "blog_url": profile.blog_url,
+        "portfolio_url": profile.portfolio_url,
         "target_career": target.title if target else None,
         "focus_skill": focus["skill_name"] if focus else None,
         "priority_score": focus["priority_score"] if focus else None,

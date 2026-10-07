@@ -26,7 +26,7 @@ def test_undoing_a_routine_removes_the_days_log(client, db_session):
     routine, task = _routine_task(db_session)
 
     assert client.post(f"/today/tasks/{task.id}/complete", json={"count": 3}).status_code == 200
-    assert client.get("/routines").json()["routines"][0]["today_log"] == {"count": 3}
+    assert client.get("/routines").json()["routines"][0]["today_log"] == {"count": 3, "learned": ""}
 
     undone = client.post(f"/today/tasks/{task.id}/reopen")
 

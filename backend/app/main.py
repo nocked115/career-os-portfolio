@@ -18,6 +18,7 @@ from .routers import (
     library as library_router,
     market as market_router,
     opportunities as opportunities_router,
+    preferred_companies as preferred_companies_router,
     proof as proof_router,
     profile as profile_router,
     target_careers as target_careers_router,
@@ -166,6 +167,7 @@ app.include_router(market_router.router)
 app.include_router(evidence_router.router)
 app.include_router(proof_router.router)
 app.include_router(target_careers_router.router)
+app.include_router(preferred_companies_router.router)
 app.include_router(today_router.router)
 app.include_router(profile_router.router)
 app.include_router(universe_router.router)

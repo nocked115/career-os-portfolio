@@ -39,7 +39,10 @@ const TYPE_LABELS = {
 
 const TABS = [
   { key: "all", label: "모든 종류" },
-  { key: "job", label: "채용 · 인턴" },
+  // 채용은 인턴과 신입(정규)으로 가른다. 2027-02 졸업이면 둘은 지원 시점도
+  // 자격 조건도 다르다 — "채용 · 인턴" 한 칸에 섞여 있으면 고를 수가 없다.
+  { key: "intern", label: "인턴" },
+  { key: "newgrad", label: "신입 · 정규" },
   { key: "competition", label: "공모전" },
   { key: "external_activity", label: "대외활동" },
   { key: "job_event", label: "채용 행사" }
@@ -81,7 +84,13 @@ const BREAKDOWN = [
 
 const SOURCE_LABELS = {
   saramin: "사람인",
-  worknet: "고용24"
+  worknet: "고용24",
+  work24: "고용24 공채속보",
+  work24_event: "고용24 채용행사",
+  greenhouse: "기업 채용 보드",
+  kakao: "카카오 채용",
+  manual: "직접 넣음",
+  mock: "예시 데이터"
 }
 
 const TREND_TEXT = {
@@ -466,6 +475,31 @@ function PasteImport({ working, onSave, onCancel, onError }) {
 
 /* ---------- 목록 · 상세 ---------- */
 
+/* 즐겨찾기 — 마감이 멀거나 없어서 오늘 계획에 안 올라오는 공고를 눈에 두는 표시.
+   매칭 점수가 가장 높은 공고가 정작 마감이 없어서 묻히는 일이 있었다.
+   켜두면 오늘 화면 맨 위에서 센다. 공고 자체는 아무것도 바뀌지 않는다. */
+function StarButton({ match, working, onToggle }) {
+  const on = Boolean(match.favorite)
+
+  return (
+    <button
+      type="button"
+      className={on ? "opp-star opp-star-on" : "opp-star"}
+      disabled={working}
+      onClick={onToggle}
+      aria-pressed={on}
+      aria-label={`'${match.title}' 즐겨찾기 ${on ? "끄기" : "켜기"}`}
+      title={on ? "즐겨찾기 끄기" : "즐겨찾기 — 오늘 화면 맨 위에서 알려줘요"}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+        fill={on ? "currentColor" : "none"}
+        stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+      </svg>
+    </button>
+  )
+}
+
 /* 휴지통 — 누르면 바로 지운다. 보관함에도 남기지 않는다.
    지원서가 달린 공고는 지우지 않는다(지원 기록은 정리 대상이 아니다) — 버튼을 두지 않는다. */
 function TrashButton({ match, working, onTrash }) {
@@ -491,11 +525,18 @@ function TrashButton({ match, working, onTrash }) {
   )
 }
 
-function OpportunityRow({ match, selected, onSelect, working, readOnly, onTrash }) {
+function OpportunityRow({
+  match, selected, onSelect, working, readOnly, onTrash, onToggleFavorite
+}) {
   return (
     <div className="opp-row-wrap">
       <OpportunityRowCard match={match} selected={selected} onSelect={onSelect} />
-      {!readOnly && <TrashButton match={match} working={working} onTrash={onTrash} />}
+      {!readOnly && (
+        <span className="opp-row-actions">
+          <StarButton match={match} working={working} onToggle={onToggleFavorite} />
+          <TrashButton match={match} working={working} onTrash={onTrash} />
+        </span>
+      )}
     </div>
   )
 }
@@ -522,13 +563,19 @@ function OpportunityRowCard({ match, selected, onSelect }) {
           {match.role ? ` · ${match.role}` : ` · ${TYPE_LABELS[match.opportunity_type] ?? "기회"}`}
         </span>
         <span className="opp-row-badges">
+          {/* 핀을 꽂았다는 걸 줄에서도 말한다. 안 그러면 "왜 이게 위에
+              있지" 가 된다 — 점수는 아래에 있는데 자리는 위라서. */}
+          {match.favorite && !archived && <StatusBadge tone="action">★ 내가 올림</StatusBadge>}
           {match.application && (
             <StatusBadge tone="action">지원서 · {statusLabel(match.application.status)}</StatusBadge>
           )}
           {match.lane === "on_hold" && <StatusBadge tone="warn">보류</StatusBadge>}
           {match.lane === "not_interested" && <StatusBadge>관심 없음</StatusBadge>}
           {archived && <StatusBadge>보관 · {match.archive_reason}</StatusBadge>}
-          {!archived && match.requirement_flags?.length > 0 && (
+          {match.blocked_reason && (
+            <StatusBadge tone="warn">자격 안 됨 · {match.blocked_reason}</StatusBadge>
+          )}
+          {!archived && !match.blocked_reason && match.requirement_flags?.length > 0 && (
             <StatusBadge tone="warn">자격 확인</StatusBadge>
           )}
         </span>
@@ -777,9 +824,18 @@ function OpportunitiesPage() {
 
   const [matches, setMatches] = useState([])
   const [signals, setSignals] = useState(null)
+  // 공고에 적혀 있는데 내 목록에 없는 도구. 순위표는 등록된 스킬만 세므로
+  // 목록에 없는 것은 수요 0 으로 보인다 — 가장 많이 요구되는 것이어도 그렇다.
+  const [gaps, setGaps] = useState(null)
+  /* 자격 때문에 못 쓰는 공고가 스킬마다 몇 건인가. 이 숫자가 없으면
+     "Computer Vision 수요 4건" 만 보이고, 그중 3건이 석사 자리라는 건
+     안 보인다. 앱이 거꾸로 그걸 공부하라고 말하게 된다. */
+  const [blocked, setBlocked] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
   const [working, setWorking] = useState(false)
+  // 막힌 수집기 — 그 출처만 0건이 되고 전체 수집은 "성공" 으로 끝난다. 화면이 말해야 한다.
+  const [brokenSources, setBrokenSources] = useState([])
   const readOnly = useReadOnly()
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
@@ -789,13 +845,23 @@ function OpportunitiesPage() {
       if (!quiet) setLoading(true)
       setLoadError(null)
 
-      const [scored, market] = await Promise.all([
+      const [scored, market, sources, skillGaps, blocked] = await Promise.all([
         api.opportunities.matches(),
-        api.marketSignals.get(6)
+        api.marketSignals.get(6),
+        // 오래된 배포에는 없는 주소다. 없다고 화면이 죽지 않게 한다.
+        api.opportunities.sources().catch(() => ({ sources: [], failed: [] })),
+        api.marketSignals.gaps().catch(() => null),
+        // 자격 때문에 못 쓰는 공고. 오래된 배포에는 없는 주소다.
+        api.blockedSkills().catch(() => null)
       ])
 
       setMatches(scored.matches)
       setSignals(market)
+      setGaps(skillGaps)
+      setBlocked(blocked)
+      setBrokenSources(
+        (sources.sources ?? []).filter((row) => row.status === "failed")
+      )
     } catch (failure) {
       console.error("Failed to load opportunities:", failure)
       setLoadError("기회를 불러오지 못했습니다.")
@@ -887,6 +953,26 @@ function OpportunitiesPage() {
       return `'${match.title}' 을(를) 검토 목록에 올렸어요. 다시 자동으로 빼지 않아요.`
     }, "되살리지 못했습니다.")
 
+  /* 지원 자격이 안 되는 공고. 지우지 않고 까닭을 적어 둔다 — 그래야
+     "이 스킬 공고 4건 중 3건이 석사 요구" 를 말할 수 있다. */
+  const blockOpportunity = (match, reason) =>
+    run(async () => {
+      await api.blockOpportunity(match.opportunity_id, reason)
+      return reason
+        ? `'${match.title}' 을(를) 지원 자격 안 됨으로 표시했어요 — ${reason}. 수요 계산에서 빠집니다.`
+        : `'${match.title}' 을(를) 되돌렸어요. 다시 수요로 셉니다.`
+    }, "표시하지 못했습니다.")
+
+  const toggleFavorite = (match) =>
+    run(async () => {
+      if (match.favorite) {
+        await api.opportunities.unfavorite(match.opportunity_id)
+        return `'${match.title}' 즐겨찾기를 껐어요.`
+      }
+      await api.opportunities.favorite(match.opportunity_id)
+      return `'${match.title}' 을(를) 즐겨찾기에 뒀어요. 오늘 화면 맨 위에서 알려드려요.`
+    }, "즐겨찾기를 바꾸지 못했습니다.")
+
   const removeOpportunity = (match) =>
     run(async () => {
       await api.opportunities.remove(match.opportunity_id)
@@ -904,10 +990,39 @@ function OpportunitiesPage() {
 
   const inView = (match) => view === "all" || match.lane === view
 
-  const byType = tab === "all" ? matches : matches.filter((match) => match.opportunity_type === tab)
+  /* 인턴 · 신입은 공고 **종류**가 아니라 채용 형태다 (서버가 제목과
+     고용형태로 가른다 — hiring_type). 나머지는 종류 그대로. */
+  const byType =
+    tab === "all"
+      ? matches
+      : tab === "intern" || tab === "newgrad"
+        ? matches.filter(
+            (match) => match.opportunity_type === "job" && match.hiring_type === tab
+          )
+        : matches.filter((match) => match.opportunity_type === tab)
   const visible = byType.filter(inView)
-  const worthDoing = visible.filter((match) => match.recommendation !== "skip")
-  const notNow = visible.filter((match) => match.recommendation === "skip")
+
+  /* 즐겨찾기는 **핀**이다. 점수를 얹는 것만으로는 부족했다 — 회사 축이
+     100점 중 10점이라, 별을 눌러도 71위이던 공고가 70위가 될 뿐이었다.
+
+     점수는 "할 만한가" 를 잰다 (마감이 빠듯하면 낮아진다). 즐겨찾기는
+     "내가 이걸 본다" 는 선언이라 다른 질문이다. 그래서 점수를 흔들지 않고
+     자리만 올린다 — 숫자는 여전히 정직하게 보인다. */
+  const pinned = (list) =>
+    [...list].sort((a, b) => {
+      if (Boolean(a.favorite) !== Boolean(b.favorite)) return a.favorite ? -1 : 1
+      // 즐겨찾기끼리는 마감이 가까운 것부터. 핀을 꽂은 건 챙기겠다는 뜻이다.
+      if (a.favorite && b.favorite) {
+        return (
+          (a.days_until_deadline ?? Infinity) - (b.days_until_deadline ?? Infinity) ||
+          (b.match_score ?? 0) - (a.match_score ?? 0)
+        )
+      }
+      return (b.match_score ?? 0) - (a.match_score ?? 0)
+    })
+
+  const worthDoing = pinned(visible.filter((match) => match.recommendation !== "skip"))
+  const notNow = pinned(visible.filter((match) => match.recommendation === "skip"))
 
   const selected =
     visible.find((match) => match.opportunity_id === selectedId) ?? worthDoing[0] ?? visible[0] ?? null
@@ -1023,6 +1138,14 @@ function OpportunitiesPage() {
         )}
       </section>
 
+      {brokenSources.length > 0 && (
+        <Notice tone="warn">
+          공고를 가져오지 못한 곳이 있어요 —{" "}
+          {brokenSources.map((row) => `${SOURCE_LABELS[row.source] ?? row.source}: ${row.error}`).join(" / ")}{" "}
+          그 사이 관심 공고는 붙여넣기나 주소로 가져오기로 넣으면 됩니다.
+        </Notice>
+      )}
+
       {error && (
         <Notice tone="bad" onClose={() => setError(null)}>
           {error}
@@ -1095,6 +1218,7 @@ function OpportunitiesPage() {
                   working={working}
                   readOnly={readOnly}
                   onTrash={() => removeOpportunity(match)}
+                  onToggleFavorite={() => toggleFavorite(match)}
                 />
               ))}
 
@@ -1116,6 +1240,7 @@ function OpportunitiesPage() {
                       working={working}
                       readOnly={readOnly}
                       onTrash={() => removeOpportunity(match)}
+                      onToggleFavorite={() => toggleFavorite(match)}
                     />
                   ))}
                 </div>
@@ -1133,6 +1258,7 @@ function OpportunitiesPage() {
                   onStatus={(status) => setStatus(selected, status)}
                   onRemove={() => removeOpportunity(selected)}
                   onKeep={() => keepOpportunity(selected)}
+                  onBlock={(reason) => blockOpportunity(selected, reason)}
                 />
               )}
             </div>
@@ -1194,6 +1320,90 @@ function OpportunitiesPage() {
           )}
         </section>
       )}
+
+      {/* 위 순위표는 **등록된 스킬만** 센다. 목록에 없는 도구는 공고에 몇 번
+          나오든 0건이라 순위표에 아예 안 뜬다. 그래서 순위표가 멀쩡해 보여도
+          가장 많이 요구되는 것이 빠져 있을 수 있다. 여기서 그걸 말한다. */}
+      {gaps && (gaps.missing.length > 0 || gaps.unused.length > 0) && (
+        <section className="card">
+          <p className="card-label">공고에는 있는데 내 스킬 목록에 없는 것</p>
+
+          {gaps.missing.length > 0 ? (
+            <>
+              <p className="muted opp-meta">
+                공고 {gaps.scanned}건의 본문에서 센 것이에요. 목록에 넣어야 위
+                순위표에 잡힙니다 — 지금은 수요 0 으로 보여요.
+              </p>
+
+              <div className="signal-list">
+                {gaps.missing.map((item) => (
+                  <div className="signal-row" key={item.name}>
+                    <span className="signal-name">{item.name}</span>
+                    <div className="signal-bar">
+                      <div className="signal-fill" style={{ width: `${item.percentage}%` }} />
+                    </div>
+                    <span className="signal-value">
+                      {item.count} / {gaps.scanned}건
+                      <small>{item.percentage}%</small>
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <p className="muted form-hint">
+                스킬 등록은 <a href="#/profile">프로필</a> 에서 해요. 넣을지 말지는
+                직접 정합니다 — 앱이 알아서 만들면 오타와 비슷한 이름이 그대로 쌓여요.
+              </p>
+            </>
+          ) : (
+            <p className="muted">공고에 나오는 도구는 다 목록에 있어요.</p>
+          )}
+
+          {gaps.unused.length > 0 && (
+            <p className="muted form-hint">
+              반대로 <strong>{gaps.unused.join(" · ")}</strong> 은(는) 이 공고들에서
+              한 번도 안 나왔어요. 빼라는 뜻은 아니고, 공부할 이유가 시장 수요가
+              아닌 거라면(수업 과목이라든지) 그건 그것대로 괜찮아요.
+            </p>
+          )}
+        </section>
+      )}
+      {/* 자격 때문에 못 쓰는 공고. 지우지 않고 세어 둔 까닭이 이것이다 —
+          "Computer Vision 공고 4건 중 3건이 석사 요구" 를 말할 수 있어야
+          그 스킬을 공부할지 정할 수 있다. */}
+      {blocked?.skills?.length > 0 && (
+        <section className="card">
+          <p className="card-label">자격 때문에 못 쓰는 공고</p>
+
+          <p className="muted opp-meta">
+            수요에서는 뺐지만 지우지 않았어요. 비중이 큰 스킬은 지금 학력 ·
+            경력으로는 문이 좁다는 뜻입니다.
+          </p>
+
+          <div className="signal-list">
+            {blocked.skills.map((row) => (
+              <div className="signal-row" key={row.skill}>
+                <span className="signal-name">{row.skill}</span>
+                <div className="signal-bar">
+                  <div
+                    className="signal-fill signal-fill-warn"
+                    style={{ width: `${row.percentage}%` }}
+                  />
+                </div>
+                <span className="signal-value">
+                  {row.blocked} / {row.total}건
+                  <small>{row.percentage}%</small>
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <p className="muted form-hint">
+            까닭 — {[...new Set(blocked.skills.flatMap((row) => row.reasons))].join(" · ")}
+          </p>
+        </section>
+      )}
+
     </div>
   )
 }

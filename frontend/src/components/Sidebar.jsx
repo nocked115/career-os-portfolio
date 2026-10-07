@@ -7,22 +7,45 @@
    가는 곳이 아니라 어디에 있든 옆에 있는 것이기 때문이다
    (DESIGN.md 7장). */
 
-// 작업 화면은 한국어로 부른다 (2026-09-15 결정). 홈의 행성 이름만 영어를 함께 쓴다.
-const ITEMS = [
-  { key: "overview", label: "한눈에 보기", glyph: "▦" },
+/* 작업 화면은 한국어로 부른다 (2026-09-15 결정). 홈의 행성 이름만 영어를 함께 쓴다.
+
+   열 개를 한 줄에 세우면 좁은 화면에서 글자가 쪼개져 "메뉴를 읽는" 게 아니라
+   "기호를 해석하는" 일이 된다. 매일 누르는 다섯 개만 위에 두고, 나머지는 접는다.
+   접은 것도 지우지 않는다 — 한 번 더 누르면 나온다. */
+const MAIN = [
   { key: "dashboard", label: "오늘", glyph: "◎" },
-  { key: "calendar", label: "캘린더", glyph: "◷" },
   { key: "learning", label: "학습", glyph: "◈" },
   { key: "projects", label: "프로젝트", glyph: "▲" },
   { key: "opportunities", label: "기회", glyph: "◇" },
+  { key: "applications", label: "지원서", glyph: "✉" }
+]
+
+const MORE = [
+  { key: "overview", label: "한눈에 보기", glyph: "▦" },
+  { key: "calendar", label: "캘린더", glyph: "◷" },
   { key: "library", label: "내 자료", glyph: "▤" },
-  { key: "applications", label: "지원서", glyph: "✉" },
   { key: "proof", label: "경험", glyph: "★" },
   { key: "review", label: "회고", glyph: "◑" }
 ]
 
+
 // Why this plan? 은 Today 의 하위 화면이라 Today 를 켠 채 둔다.
 const PARENT = { why: "dashboard" }
+
+function NavItem({ item, active, onNavigate }) {
+  return (
+    <button
+      className={active === item.key ? "sidebar-item sidebar-item-on" : "sidebar-item"}
+      aria-current={active === item.key ? "page" : undefined}
+      onClick={() => onNavigate(item.key)}
+    >
+      <span className="sidebar-glyph" aria-hidden="true">
+        {item.glyph}
+      </span>
+      {item.label}
+    </button>
+  )
+}
 
 function Sidebar({ view, onNavigate, onHome }) {
   const active = PARENT[view] ?? view
@@ -35,23 +58,17 @@ function Sidebar({ view, onNavigate, onHome }) {
       </button>
 
       <nav className="sidebar-nav">
-        {ITEMS.map((item) => (
-          <button
-            key={item.key}
-            className={
-              active === item.key
-                ? "sidebar-item sidebar-item-on"
-                : "sidebar-item"
-            }
-            aria-current={active === item.key ? "page" : undefined}
-            onClick={() => onNavigate(item.key)}
-          >
-            <span className="sidebar-glyph" aria-hidden="true">
-              {item.glyph}
-            </span>
-            {item.label}
-          </button>
+        {MAIN.map((item) => (
+          <NavItem key={item.key} item={item} active={active} onNavigate={onNavigate} />
         ))}
+
+        {/* 덜 쓰는 다섯 개. 그 안에 있는 화면을 보고 있으면 열어 둔다. */}
+        <details className="sidebar-more" open={MORE.some((item) => item.key === active)}>
+          <summary>그 밖에</summary>
+          {MORE.map((item) => (
+            <NavItem key={item.key} item={item} active={active} onNavigate={onNavigate} />
+          ))}
+        </details>
       </nav>
 
       <button className="sidebar-home" onClick={onHome}>

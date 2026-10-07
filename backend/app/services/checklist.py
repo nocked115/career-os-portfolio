@@ -78,7 +78,67 @@ def build_checklist(step) -> dict:
     }
 
 
-def summary(step) -> dict | None:
+def today_slice(step, minutes: int | None = None, factor: float | None = None) -> dict | None:
+    """오늘은 이 주차에서 **어디서부터 어디까지**.
+
+    수현: "각 주차에서 무엇을 해야 한다 → 그 안에서 세부적으로 잘라서
+    오늘은 여기서부터 여기까지 이게 나와야 할 것 같은데."
+
+    주차 하나가 9시간이면 그걸 통째로 "오늘 할 일" 이라고 내밀 수 없다.
+    오늘 쓸 시간만큼만 잘라서 몇 번째부터 몇 번째까지인지 말한다.
+
+    항목마다 시간이 적혀 있지 않다 — 적게 하면 체크리스트를 만들 때마다
+    숫자를 지어내야 한다. 대신 **주차 시간 ÷ 항목 수** 로 고르게 나눈다.
+    고르지 않다는 건 알지만, 지어낸 숫자보다는 설명할 수 있다.
+
+    minutes 를 안 주면 자르지 않고 남은 것 전부를 돌려준다.
+    """
+    tasks = _tasks(step)
+
+    if not tasks:
+        return None
+
+    undone = [item for item in tasks if not item.done]
+
+    if not undone:
+        return None
+
+    total = step.estimated_minutes or 0
+    per_item = (total / len(tasks)) if total else 0
+
+    # 보정 계수 — 지금까지 계획보다 1.4배 걸렸다면 한 항목도 1.4배로 본다.
+    # 그러면 30분에 다섯 항목이 아니라 세 항목이 들어간다. 추정을 고치는
+    # 대신 **자르는 자를** 고친다 — 원래 추정은 그대로 두고 설명할 수 있게.
+    if factor:
+        per_item *= factor
+
+    if minutes and per_item > 0:
+        # 적어도 한 항목은 준다. 0개를 "오늘 할 일" 이라고 내밀 수 없다.
+        count = max(1, int(minutes // per_item))
+    else:
+        count = len(undone)
+
+    chosen = undone[:count]
+
+    return {
+        # 사람이 세는 번호(1부터). position 은 0부터라 화면 숫자와 어긋난다.
+        "from_number": tasks.index(chosen[0]) + 1,
+        "to_number": tasks.index(chosen[-1]) + 1,
+        "total_number": len(tasks),
+        "count": len(chosen),
+        "items": [item.text for item in chosen],
+        # 화면이 테두리를 칠 대상. 글자로 맞추면 같은 문구가 두 번
+        # 나오는 체크리스트에서 엉뚱한 줄에 쳐진다.
+        "item_ids": [item.id for item in chosen],
+        "minutes": round(per_item * len(chosen)) if per_item else None,
+        # 보정을 썼는가. 화면이 "내 속도로 맞춤" 이라고 말할 수 있어야 한다.
+        "adjusted": bool(factor and factor != 1),
+        # 오늘 몫을 다 하면 이 주차가 끝나는가.
+        "finishes_step": len(chosen) == len(undone),
+    }
+
+
+def summary(step, minutes: int | None = None, factor: float | None = None) -> dict | None:
     """오늘 계획 카드용. 체크리스트가 없으면 None."""
     tasks = _tasks(step)
     if not tasks:
@@ -88,6 +148,8 @@ def summary(step) -> dict | None:
         "done": sum(1 for item in tasks if item.done),
         "total": len(tasks),
         "next": [item.text for item in tasks if not item.done][:NEXT_COUNT],
+        # 오늘 쓸 시간만큼 자른 몫. 주차 하나를 통째로 내밀지 않는다.
+        "today": today_slice(step, minutes, factor=factor),
     }
 
 

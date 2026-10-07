@@ -153,6 +153,115 @@ function OutputsSection({ step, outputs, experience, working, readOnly, run }) {
   )
 }
 
+/* 한 단계를 끝냈을 때 내주는 영수증.
+
+   수현: "참 잘했어요 도장이라도 찍어주던지, 결과표를 내주던지 영수증처럼
+   — 총 걸린 시간 3시간 (예상보다 00시간 오버) / 남긴 자료들 노션 등."
+
+   없는 것은 없다고 적는다. 채워 넣으면 영수증이 아니라 상장이 된다. */
+function Receipt({ receipt }) {
+  const over = receipt.gap_minutes
+
+  return (
+    <div className="receipt">
+      <p className="receipt-stamp">참 잘했어요</p>
+
+      <dl className="receipt-rows">
+        <div>
+          <dt>끝낸 것</dt>
+          <dd>
+            {receipt.step.title}
+            {receipt.path && <span className="muted"> · {receipt.path.title}</span>}
+          </dd>
+        </div>
+
+        <div>
+          <dt>걸린 시간</dt>
+          <dd>
+            {receipt.actual_minutes != null ? (
+              <>
+                <strong>{minutesText(receipt.actual_minutes)}</strong>
+                <span className="muted">
+                  {" "}· 예상 {minutesText(receipt.estimated_minutes)}
+                  {over != null && over !== 0 && (
+                    <>
+                      {" "}({over > 0 ? "+" : ""}
+                      {minutesText(Math.abs(over))} {over > 0 ? "더 걸림" : "덜 걸림"})
+                    </>
+                  )}
+                  {receipt.measured_days > 1 && ` · ${receipt.measured_days}번에 나눠서`}
+                </span>
+              </>
+            ) : (
+              <span className="muted">
+                안 적었어요 — 예상은 {minutesText(receipt.estimated_minutes)}였습니다
+              </span>
+            )}
+          </dd>
+        </div>
+
+        <div>
+          <dt>체크</dt>
+          <dd>
+            {receipt.checked} / {receipt.total_items}개
+            {receipt.span_days > 1 && (
+              <span className="muted">
+                {" "}· {receipt.first_day} ~ {receipt.last_day} ({receipt.span_days}일)
+              </span>
+            )}
+          </dd>
+        </div>
+
+        {receipt.skills.length > 0 && (
+          <div>
+            <dt>증명한 것</dt>
+            <dd>{receipt.skills.join(" · ")}</dd>
+          </div>
+        )}
+
+        <div>
+          <dt>남긴 자료</dt>
+          <dd>
+            {receipt.outputs.length > 0 ? (
+              <ul className="receipt-outputs">
+                {receipt.outputs.map((output) => (
+                  <li key={output.id}>
+                    {output.url ? (
+                      <a
+                        className="td-link"
+                        href={output.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
+                        {output.title} ↗
+                      </a>
+                    ) : (
+                      output.title
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <span className="muted">
+                없어요 — 아래 &lsquo;내가 만든 것&rsquo; 에 주소를 남기면 경험으로
+                꺼낼 수 있습니다
+              </span>
+            )}
+          </dd>
+        </div>
+      </dl>
+
+      {receipt.missing.length > 0 && (
+        <p className="muted receipt-missing">
+          안 적은 것 — {receipt.missing.join(" · ")}. 지금 적어 두면 나중에
+          &ldquo;내가 뭘 했더라&rdquo; 를 더듬지 않아도 돼요.
+        </p>
+      )}
+    </div>
+  )
+}
+
+
 function LearningSession({ stepId, onBack, onCompleted, onOpenSession, onToday }) {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -355,6 +464,11 @@ function LearningSession({ stepId, onBack, onCompleted, onOpenSession, onToday }
         <section className="card learn-result" role="status" aria-live="polite">
           <p className="learn-result-title">✓ 학습 세션 완료</p>
 
+          {/* 영수증. 끝낸 자리가 가장 많은 것이 모여 있는 때인데 그동안
+              "완료했습니다" 한 줄로 흘려보냈다. 지어내지 않는다 — 시간을
+              안 적었으면 안 적었다고 하고, 남긴 것이 없으면 없다고 한다. */}
+          {result.receipt && <Receipt receipt={result.receipt} />}
+
           {result.effects.length > 0 ? (
             <ul className="learn-result-list">
               {result.effects.map((effect) => (
@@ -418,6 +532,7 @@ function LearningSession({ stepId, onBack, onCompleted, onOpenSession, onToday }
       <ChecklistPanel
         stepId={step.id}
         checklist={session.checklist}
+        todaySlice={session.today_slice}
         goals={goals}
         isCompleted={isCompleted}
         onUpdated={(checklist) => setSession((current) => ({ ...current, checklist }))}
@@ -428,6 +543,85 @@ function LearningSession({ stepId, onBack, onCompleted, onOpenSession, onToday }
         }}
         onComplete={completeStep}
       />
+
+      {/* ---------- 이 단계가 덮는 장 ----------
+
+          자료 단위 연결(아래 "이번 세션 자료")만으로는 "3주차는 핸즈온 4장"
+          을 적을 수 없다. 그래서 단계를 끝내도 그 장이 그대로 남아, 같은
+          공부를 두 군데서 체크해야 했다. */}
+      {(session.segments?.attached?.length > 0 ||
+        session.segments?.available?.length > 0) && (
+        <section className="card">
+          <div className="materials-header">
+            <p className="card-label">이 단계가 덮는 장</p>
+            <span className="muted">완료하면 같이 끝납니다</span>
+          </div>
+
+          {session.segments.attached.length === 0 ? (
+            <p className="muted">
+              아직 없어요. 아래에서 고르면 이 단계를 끝낼 때 그 장도 읽은 것으로
+              남습니다.
+            </p>
+          ) : (
+            <div className="seg-rows">
+              {session.segments.attached.map((segment) => (
+                <div className="seg-row" key={segment.id}>
+                  <span className="seg-mark">
+                    {segment.status === "completed" ? "✓" : "○"}
+                  </span>
+                  <span className="seg-label">
+                    {segment.resource_title} — {segment.label}
+                  </span>
+                  <span className="muted seg-min">
+                    {segment.minutes > 0 ? minutesText(segment.minutes) : "시간 미정"}
+                  </span>
+                  <Button
+                    variant="quiet"
+                    writes
+                    disabled={working}
+                    onClick={() =>
+                      run(
+                        () => api.learningSteps.detachSegment(stepId, segment.id),
+                        `'${segment.label}' 을(를) 뗐어요.`,
+                        "떼지 못했습니다."
+                      )
+                    }
+                  >
+                    떼기
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {session.segments.available.length > 0 && (
+            <div className="seg-add">
+              <p className="muted form-hint">
+                연결된 자료에서 고르세요 — 아직 어느 단계에도 안 붙은 장만 보입니다.
+              </p>
+              <div className="seg-chips">
+                {session.segments.available.map((segment) => (
+                  <Button
+                    key={segment.id}
+                    variant="quiet"
+                    writes
+                    disabled={working}
+                    onClick={() =>
+                      run(
+                        () => api.learningSteps.attachSegment(stepId, segment.id),
+                        `'${segment.label}' 을(를) 이 단계에 붙였어요.`,
+                        "붙이지 못했습니다."
+                      )
+                    }
+                  >
+                    + {segment.resource_title} — {segment.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ---------- 이번 세션 자료 ---------- */}
       <section className="card">
@@ -530,11 +724,29 @@ function LearningSession({ stepId, onBack, onCompleted, onOpenSession, onToday }
               </Button>
             </>
           ) : (
+            /* 막혔을 때는 **무엇을 해야 하는지** 를 말한다. "스킬이 없는
+               경로라 고를 수 없어요" 만 적혀 있으니, 어디서 스킬을 거는지
+               몰라 '내 자료에서 등록하기' 를 눌러 라이브러리로 가게 됐다.
+               거기서는 아무것도 풀리지 않는다. */
             <p className="muted form-hint">
-              {skill ? `${skill.name} 로 등록한 자료 중 더 연결할 것이 없어요.` : "스킬이 없는 경로라 연결할 자료를 고를 수 없어요."}{" "}
-              <a className="td-link" href="#/library">
-                내 자료에서 등록하기
-              </a>
+              {skill ? (
+                <>
+                  {skill.name} 로 등록한 자료 중 더 연결할 것이 없어요.{" "}
+                  <a className="td-link" href="#/library">
+                    내 자료에서 등록하기
+                  </a>
+                </>
+              ) : (
+                <>
+                  이 경로에 <strong>스킬이 안 걸려 있어서</strong> 자료를 고를 수 없어요.
+                  자료는 스킬로 묶여 있거든요. 학습 경로 화면에서 이 경로의{" "}
+                  <strong>&lsquo;설명 · 스킬 · 목표일 고치기&rsquo;</strong> 를 눌러 스킬을
+                  하나 고르면 바로 풀립니다.{" "}
+                  <a className="td-link" href="#/learning">
+                    학습 경로로 가기
+                  </a>
+                </>
+              )}
             </p>
           )}
         </div>

@@ -5,6 +5,7 @@
 `legacy_job_id` 로 이어서 양쪽이 함께 동작하게 한다.
 """
 
+import re
 from datetime import date, datetime
 
 from .. import collectors, models
@@ -19,13 +20,25 @@ from . import priority as priority_service
 # 각 요소가 왜 그 배점인지는 build_match() 의 주석 참고.
 # --------------------------------
 
-WEIGHT_RELEVANCE = 40      # 지금 배워야 할 스킬을 요구하는가
-WEIGHT_READINESS = 30      # 지금 지원/도전할 만한 준비가 됐는가
-WEIGHT_PORTFOLIO = 15      # 포트폴리오 증거가 되는가
-WEIGHT_DEADLINE = 15       # 마감까지 현실적인가
+WEIGHT_RELEVANCE = 36      # 지금 배워야 할 스킬을 요구하는가
+WEIGHT_READINESS = 27      # 지금 지원/도전할 만한 준비가 됐는가
+WEIGHT_PORTFOLIO = 14      # 포트폴리오 증거가 되는가
+WEIGHT_DEADLINE = 13       # 마감까지 현실적인가
+WEIGHT_PREFERENCE = 10     # 가고 싶은 회사인가
 
 # 공고에서 스킬을 못 찾았을 때 관련성 · 준비도. 모르는 것을 0 으로 치지 않는다.
 UNKNOWN_SKILL_VALUE = 0.5
+
+# 가고 싶은 회사(preferred_companies)의 rank 별 값.
+#
+# 목록에 없는 회사를 0 으로 치지 않는다 — 스킬과 같은 이유다. 목록은 "가고 싶은 곳" 만
+# 적는 칸이고 "안 가고 싶은 곳" 을 적는 칸이 아니라서, 없다는 것은 **싫다** 가 아니라
+# **아직 모른다** 다. 0 으로 치면 목록에 없는 좋은 공고가 통째로 10점을 잃는다.
+PREFERENCE_VALUE = {1: 1.0, 2: 0.8, 3: 0.65}
+UNKNOWN_PREFERENCE = 0.5
+
+# 기업 규모(대기업 · 중견 · 중소)는 점수에 없다. 앱에 규모 데이터가 없어서다 —
+# 공고에는 회사 이름 문자열만 있다. 사람인 API 가 승인되면 그때 넣는다.
 
 RECOMMEND_THRESHOLD = 70
 CONSIDER_THRESHOLD = 40
@@ -92,9 +105,23 @@ def _bridge_to_legacy_job(db, opportunity):
     existing = None
 
     if opportunity.source_url:
+        # 이미 다른 기회가 쓰고 있는 Job 은 다시 쓰지 않는다. opportunities.legacy_job_id 는
+        # 유일 제약이라, 주소가 같은 공고가 둘이면 두 번째에서 수집 전체가 죽는다.
+        # 실제로 났다 — 기업 채용 보드에서 같은 주소의 공고가 두 건 들어왔다.
+        taken = (
+            db.query(models.Opportunity.legacy_job_id)
+            .filter(
+                models.Opportunity.legacy_job_id.isnot(None),
+                models.Opportunity.id != opportunity.id,
+            )
+        )
+
         existing = (
             db.query(models.Job)
-            .filter(models.Job.url == opportunity.source_url)
+            .filter(
+                models.Job.url == opportunity.source_url,
+                models.Job.id.notin_(taken),
+            )
             .first()
         )
 
@@ -242,12 +269,33 @@ def dismiss(db, opportunity) -> None:
         ))
 
 
+def record_run(db, result: dict) -> None:
+    """출처별 마지막 수집 결과를 남긴다. 막힌 것을 조용히 넘기지 않기 위해서다."""
+    row = (
+        db.query(models.CollectorRun)
+        .filter(models.CollectorRun.source == result["source"])
+        .first()
+    )
+
+    if row is None:
+        row = models.CollectorRun(source=result["source"])
+        db.add(row)
+
+    row.status = result["status"]
+    row.error = result.get("error") or ""
+    row.fetched = result.get("fetched") or 0
+    row.created = result.get("created") or 0
+    row.ran_at = datetime.now()
+
+    db.commit()
+
+
 def collect_from(db, collector) -> dict:
     """수집원 하나를 실행한다."""
     try:
         raw_items = collector.fetch()
     except collectors.base.CollectorError as error:
-        return {
+        failure = {
             "source": collector.SOURCE_NAME,
             "status": "failed",
             "error": str(error),
@@ -255,6 +303,8 @@ def collect_from(db, collector) -> dict:
             "created": 0,
             "updated": 0,
         }
+        record_run(db, failure)
+        return failure
 
     created = 0
     updated = 0
@@ -280,7 +330,7 @@ def collect_from(db, collector) -> dict:
         else:
             updated += 1
 
-    return {
+    result = {
         "source": collector.SOURCE_NAME,
         "status": "completed",
         "fetched": len(raw_items),
@@ -288,6 +338,9 @@ def collect_from(db, collector) -> dict:
         "updated": updated,
         "skipped": skipped,
     }
+    record_run(db, result)
+
+    return result
 
 
 # 모집 부문을 읽어 직무를 판단할 수 있는 수집원. 부문이 없는 공고는 판단하지 않는다.
@@ -538,7 +591,9 @@ def lane_of(opportunity, application, days_left):
       review          나머지
     """
     if opportunity.status == "closed":
-        return "archived", "직접 닫음"
+        # 치우기가 마감으로 내린 것은 "직접 닫음" 이 아니다. 사람이 한 일과
+        # 앱이 한 일을 같은 말로 적으면 되돌릴 데를 못 찾는다.
+        return "archived", opportunity.tidied_reason or "직접 닫음"
 
     if application is not None and application["status"] in ENDED_APPLICATION:
         return "archived", ENDED_APPLICATION[application["status"]]
@@ -548,6 +603,11 @@ def lane_of(opportunity, application, days_left):
 
     if application is not None:
         return "applied", None
+
+    # 치우기가 보관함에 넣은 것. 여기서 안 받으면 **아무 칸에도 안 걸려서**
+    # 검토 목록에 그대로 남는다 — 상태만 바뀌고 화면은 그대로인 셈이다.
+    if opportunity.status == "archived":
+        return "archived", opportunity.tidied_reason or "자동으로 치움"
 
     # 직무가 맞지 않아 자동으로 뺀 공고. "그래도 검토" 로 되살릴 수 있다.
     if opportunity.filtered_reason:
@@ -569,6 +629,76 @@ def _application_summary(opportunity):
         return None
 
     return {"id": applications[0].id, "status": applications[0].status}
+
+
+def _squash(text) -> str:
+    """회사 이름 대조용. 공백 · 대소문자를 없앤다 ("CJ ENM" ↔ "cj enm")."""
+    return "".join(str(text or "").split()).lower()
+
+
+# 인턴인가 신입(정규)인가.
+#
+# employment_type 은 자유 글자라 믿을 수 없다 — 수현 데이터 76건 중 35건이
+# 비어 있고, 나머지도 "정규직|정규직전환형|기간제|기타" 처럼 섞여 온다.
+# 그래서 제목까지 같이 본다.
+INTERN = re.compile(r"인턴|intern|체험형|현장실습", re.IGNORECASE)
+NEWGRAD = re.compile(r"신입|new\s?grad|공채|신규\s?직원|신입사원|주니어|junior", re.IGNORECASE)
+
+
+def hiring_type(opportunity) -> str:
+    """intern · newgrad · unknown.
+
+    저장하지 않고 그때그때 센다. 저장하면 공고가 고쳐질 때마다 같이
+    고쳐야 하고, 둘이 어긋나면 어느 쪽이 맞는지 알 수 없다.
+
+    **인턴이 먼저다.** "신입/인턴" 처럼 둘 다 적힌 공고는 인턴으로 본다 —
+    2027-02 졸업 예정이면 지금 당장 갈 수 있는 쪽이 인턴이기 때문이다.
+    """
+    text = f"{opportunity.title or ''} {opportunity.employment_type or ''}"
+
+    if INTERN.search(text):
+        return "intern"
+
+    if NEWGRAD.search(text):
+        return "newgrad"
+
+    return "unknown"
+
+
+def company_preference(db, opportunity) -> tuple[float, str, int | None]:
+    """가고 싶은 회사인가. (값, 맞은 이름, rank) 를 돌려준다.
+
+    공고의 회사명은 부문까지 붙어 오는 일이 많다 ("CJ ENM 엔터테인먼트부문").
+    그래서 완전일치가 아니라 **한쪽이 다른 쪽을 품는지** 로 본다 —
+    추천시스템 경로를 놓쳤던 것과 같은 실수를 여기서 반복하지 않는다.
+
+    목록에 없으면 UNKNOWN_PREFERENCE (모름). 0 이 아니다.
+
+    **즐겨찾기는 1순위와 같게 본다.** 별을 누른 건 "여기 가고 싶다" 는
+    가장 분명한 표시인데, 그동안 점수에 아무 영향이 없었다. 그래서
+    가고 싶은 곳을 눌러 둬도 목록에서는 여전히 아래에 있었다.
+    """
+    if getattr(opportunity, "favorite", False):
+        return PREFERENCE_VALUE[1], "즐겨찾기", 1
+
+    name = _squash(getattr(opportunity, "organization", ""))
+    if not name:
+        return UNKNOWN_PREFERENCE, "", None
+
+    best = None
+
+    for company in db.query(models.PreferredCompany).all():
+        wanted = _squash(company.name)
+        if not wanted:
+            continue
+        if wanted in name or name in wanted:
+            if best is None or company.rank < best.rank:
+                best = company
+
+    if best is None:
+        return UNKNOWN_PREFERENCE, "", None
+
+    return PREFERENCE_VALUE.get(best.rank, UNKNOWN_PREFERENCE), best.name, best.rank
 
 
 def build_match(db, opportunity, priority_entries=None) -> dict:
@@ -613,12 +743,18 @@ def build_match(db, opportunity, priority_entries=None) -> dict:
     application = _application_summary(opportunity)
     lane, archive_reason = lane_of(opportunity, application, days_left)
 
-    score = round(
-        relevance * WEIGHT_RELEVANCE
-        + readiness * WEIGHT_READINESS
-        + portfolio * WEIGHT_PORTFOLIO
-        + deadline_score * WEIGHT_DEADLINE
-    )
+    preference, preferred_name, preferred_rank = company_preference(db, opportunity)
+
+    # 내역을 먼저 반올림하고, 점수는 그 합으로 낸다.
+    # 반대로 하면(합을 반올림) 화면의 내역 합계와 점수가 1점 어긋난다.
+    breakdown = {
+        "relevance": round(relevance * WEIGHT_RELEVANCE),
+        "readiness": round(readiness * WEIGHT_READINESS),
+        "portfolio_value": round(portfolio * WEIGHT_PORTFOLIO),
+        "deadline": round(deadline_score * WEIGHT_DEADLINE),
+        "company": round(preference * WEIGHT_PREFERENCE),
+    }
+    score = sum(breakdown.values())
 
     # 마감이 지났으면 점수와 무관하게 건너뛴다.
     if deadline_state == "passed":
@@ -645,6 +781,12 @@ def build_match(db, opportunity, priority_entries=None) -> dict:
         "archive_reason": archive_reason,
         "title": opportunity.title,
         "organization": opportunity.organization,
+        # 즐겨찾기 — 화면이 별을 그리고, 오늘 화면이 이걸 센다.
+        "favorite": bool(opportunity.favorite),
+        # 가고 싶은 회사로 등록돼 있으면 어느 이름에 걸렸는지 같이 보낸다.
+        # 점수만 보여주면 왜 올랐는지 알 수 없다.
+        "preferred_company": preferred_name,
+        "preferred_rank": preferred_rank,
         "opportunity_type": opportunity.opportunity_type,
         # 화면이 "공고 보기" 링크를 만들려면 이게 있어야 한다.
         # 없으면 지원하러 갈 때마다 주소를 다시 찾아야 한다.
@@ -655,6 +797,12 @@ def build_match(db, opportunity, priority_entries=None) -> dict:
         "role": opportunity.role,
         # 자동으로 뺐으면 왜 뺐는지. 보관함에서 그대로 보인다.
         "filtered_reason": opportunity.filtered_reason,
+        # 사람이 "자격이 안 된다" 고 정한 까닭 (석사 필수 · 경력 3년).
+        # filtered_reason 과 다르다 — 저건 앱의 판단, 이건 사람의 판단이다.
+        "blocked_reason": opportunity.blocked_reason,
+        "tidied_reason": opportunity.tidied_reason,
+        # 인턴인가 신입(정규)인가. 2027-02 졸업이면 둘은 지원 시점이 다르다.
+        "hiring_type": hiring_type(opportunity),
         # 보류 · 관심 없음을 화면이 따로 모으려면 상태가 있어야 한다.
         "status": opportunity.status,
         "deadline": opportunity.deadline,
@@ -676,12 +824,7 @@ def build_match(db, opportunity, priority_entries=None) -> dict:
         "required_skills": [skill.name for skill in opportunity.skills],
         "skills_i_have": have,
         "skills_required": required,
-        "breakdown": {
-            "relevance": round(relevance * WEIGHT_RELEVANCE),
-            "readiness": round(readiness * WEIGHT_READINESS),
-            "portfolio_value": round(portfolio * WEIGHT_PORTFOLIO),
-            "deadline": round(deadline_score * WEIGHT_DEADLINE),
-        },
+        "breakdown": breakdown,
         "reasons": _build_reasons(
             opportunity=opportunity,
             relevant_names=relevant_names,

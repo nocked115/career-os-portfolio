@@ -152,8 +152,8 @@ def test_match_without_skills_says_it_cannot_judge(client):
     assert match["skills_required"] == 0
     assert "찾지 못해" in " ".join(match["reasons"])
     # 모르는 것을 0 으로 치지 않는다 — 조선해양 데이터 사이언티스트가 10점으로 맨 아래 있었다.
-    assert match["breakdown"]["relevance"] == 20
-    assert match["breakdown"]["readiness"] == 15
+    assert match["breakdown"]["relevance"] == 18   # 36 * 0.5
+    assert match["breakdown"]["readiness"] == 14   # 27 * 0.5
 
 
 def test_one_found_skill_is_not_full_readiness(client):
@@ -165,7 +165,7 @@ def test_one_found_skill_is_not_full_readiness(client):
     match = client.get(f"/opportunities/{one['id']}/match").json()
 
     assert (match["skills_i_have"], match["skills_required"]) == (1, 1)
-    assert match["breakdown"]["readiness"] == 20  # 30 * 2/3
+    assert match["breakdown"]["readiness"] == 18  # 27 * 2/3
 
 
 def test_breakdown_adds_up_to_the_score(client):
@@ -674,3 +674,35 @@ def test_relink_keeps_links_a_person_made_by_hand(client, db_session):
 
     db_session.refresh(opportunity)
     assert [s.name for s in opportunity.skills] == ["Kubernetes"]
+
+
+def test_two_postings_with_the_same_url_do_not_break_collection(db_session):
+    """주소가 같은 공고가 둘이어도 수집이 죽지 않는다.
+
+    legacy_job_id 는 유일 제약이라, 같은 Job 에 두 기회를 잇는 순간 수집 전체가 500 이 됐다.
+    기업 채용 보드에서 실제로 같은 주소의 공고가 두 건 들어왔다.
+    """
+    shared = "https://example.com/careers?gh_jid=1"
+
+    def save(external_id, title):
+        return opportunity_service.save_opportunity(db_session, {
+            "opportunity_type": "job",
+            "title": title,
+            "organization": "테스트",
+            "role": "",
+            "description": "",
+            "source": "greenhouse",
+            "source_external_id": external_id,
+            "source_url": shared,
+            "location": "",
+            "employment_type": "",
+            "deadline": None,
+            "raw_payload": "",
+        })[0]
+
+    first = save("1", "ML Engineer")
+    second = save("2", "Data Engineer")
+
+    assert first.legacy_job_id is not None
+    assert second.legacy_job_id is not None
+    assert first.legacy_job_id != second.legacy_job_id

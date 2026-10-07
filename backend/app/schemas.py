@@ -16,6 +16,9 @@ LearningStatus = Literal[
 ]
 OpportunityType = Literal["job", "competition", "external_activity", "job_event"]
 
+# 프로젝트가 무엇을 위한 것인가. 학습용은 계획에는 오르지만 증거로 세지 않는다.
+ProjectPurpose = Literal["evidence", "practice", "hobby"]
+
 # 자료 종류. Mission 022 이전에는 자유 문자열이었고 기본값이 "youtube" 였다.
 ResourceType = Literal[
     "official_doc",
@@ -64,6 +67,9 @@ class SkillCreate(BaseModel):
     # "머신러닝, ML" 처럼 두면 한글 공고에서도 찾는다.
     aliases: str = ""
 
+    # 전공(도구) · 교양(배경지식). 대학교의 그 구분과 같다.
+    track: Literal["major", "general"] = "major"
+
 
 class SkillUpdate(BaseModel):
     """부분 수정. 준 것만 바꾼다.
@@ -77,6 +83,7 @@ class SkillUpdate(BaseModel):
     level: int | None = Field(default=None, ge=0, le=4)
     status: str | None = None
     aliases: str | None = None
+    track: Literal["major", "general"] | None = None
 
 
 class SkillLevelEventResponse(BaseModel):
@@ -108,6 +115,10 @@ class ProjectCreate(BaseModel):
     description: str = ""
     status: str = "planned"
     career_related: bool = True
+    # evidence(커리어 증거) · practice(학습용 · 수업 과제) · hobby(취미)
+    purpose: ProjectPurpose = "evidence"
+    # 왜 하려는가. status="idea" 로 세워둔 기획안에서 판단 근거가 된다.
+    why: str = ""
 
     estimated_hours: int = 0
     progress_percent: int = 0
@@ -144,6 +155,8 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     status: str | None = None
     career_related: bool | None = None
+    purpose: ProjectPurpose | None = None
+    why: str | None = None
     estimated_hours: int | None = Field(default=None, ge=0)
     progress_percent: int | None = Field(default=None, ge=0, le=100)
     daily_minutes: int | None = Field(default=None, ge=0)
@@ -241,6 +254,9 @@ class SegmentCreate(BaseModel):
     estimated_minutes: int = Field(default=0, ge=0)
     status: LearningStatus = "not_started"
 
+    # 읽고 남긴 한 줄. 앱이 고치거나 요약하지 않는다.
+    note: str = Field(default="", max_length=4000)
+
 
 class SegmentResponse(SegmentCreate):
     id: int
@@ -258,6 +274,17 @@ class SegmentUpdate(BaseModel):
     end_ref: int | None = Field(default=None, ge=0)
     estimated_minutes: int | None = Field(default=None, ge=0)
     status: LearningStatus | None = None
+    note: str | None = Field(default=None, max_length=4000)
+
+
+class SegmentComplete(BaseModel):
+    """조각을 끝낼 때. 정리는 그때 적는다.
+
+    끝낸 직후가 가장 잘 떠오르고, 나중에 다시 열 이유가 줄어든다
+    (routine_logs.learned 에서 같은 판단을 했다).
+    """
+
+    note: str | None = Field(default=None, max_length=4000)
 
 # --------------------
 # Agent
@@ -271,9 +298,14 @@ class AgentRequest(BaseModel):
 # Mission 021 foundation
 # --------------------
 
+# 학교 수업(course) 인가 따로 공부(self) 인가. 오늘 할 일을 갈래로 묶는 데 쓴다.
+LearningPathKind = Literal["course", "self"]
+
+
 class LearningPathCreate(BaseModel):
     title: str
     description: str = ""
+    kind: LearningPathKind = "self"
     status: LearningStatus = "not_started"
     progress_percent: int = Field(default=0, ge=0, le=100)
     target_date: date | None = None
@@ -336,6 +368,9 @@ class OpportunityResponse(OpportunityCreate):
     collected_at: datetime
     updated_at: datetime
 
+    # 즐겨찾기. 화면 맨 위 배지가 이걸 센다.
+    favorite: bool = False
+
     # 어떤 스킬을 요구하는지가 곧 수요 집계의 재료다.
     # 응답에서 빠지면 화면이 "무엇을 찾았는지" 를 보여줄 수 없다.
     skills: list[ProjectSkillRef] = []
@@ -361,6 +396,13 @@ class ExperienceCreate(BaseModel):
     technologies: str = ""
     metrics: str = ""
     tags: str = ""
+    stakeholders: str = ""
+    contribution: str = ""
+    obstacles: str = ""
+    learned: str = ""
+    reusable: str = ""
+    target_roles: str = ""
+    questions: str = ""
     start_date: date | None = None
     end_date: date | None = None
     github_url: str = ""
@@ -483,6 +525,7 @@ class CoverLetterAnswerResponse(CoverLetterAnswerCreate):
 class LearningPathUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
+    kind: LearningPathKind | None = None
     status: LearningStatus | None = None
     progress_percent: int | None = Field(default=None, ge=0, le=100)
     target_date: date | None = None
@@ -500,6 +543,33 @@ class LearningStepUpdate(BaseModel):
     estimated_minutes: int | None = Field(default=None, ge=0)
     completed_at: datetime | None = None
     due_date: date | None = None
+
+
+class OpportunityBlock(BaseModel):
+    """지원 자격이 안 된다 — 까닭을 적는다.
+
+    비워서 보내면 다시 지원할 수 있는 공고가 된다.
+    """
+
+    reason: str = Field(default="", max_length=200)
+
+
+class RoadmapParseRequest(BaseModel):
+    """로드맵 글 — 읽기만 한다. 저장은 확인한 뒤."""
+
+    text: str = Field(min_length=1, max_length=200_000)
+
+
+class RoadmapApplyRequest(RoadmapParseRequest):
+    """읽은 그대로 넣는다. 어떤 스킬의 경로인지도 같이 받는다."""
+
+    skill_id: int | None = None
+
+
+class LearningStepReorder(BaseModel):
+    """단계 순서 바꾸기 — 그 경로의 **모든** 단계 id 를 새 순서대로."""
+
+    step_ids: list[int] = Field(min_length=1)
 
 
 # --------------------------------
@@ -576,6 +646,28 @@ class ChecklistItemUpdate(BaseModel):
 # 한 달 스스로 평가
 # --------------------------------
 
+class PlanTaskAdd(BaseModel):
+    """오늘 계획에 직접 넣는 한 줄."""
+
+    kind: Literal["project", "learning_step", "resource", "custom"]
+    target_id: int | None = None
+    title: str = Field(default="", max_length=200)
+    minutes: int = Field(default=30, ge=5, le=480)
+
+
+class TaskSkipRequest(BaseModel):
+    """오늘은 넘긴다 — 까닭을 적는다. 안 한 것도 기록이다."""
+
+    reason: str = Field(default="", max_length=200)
+
+
+class PlanTaskEdit(BaseModel):
+    """오늘 계획 한 줄 고치기. 보낸 것만 바꾼다."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    minutes: int | None = Field(default=None, ge=5, le=480)
+
+
 class ReflectionUpdate(BaseModel):
     rating: int | None = Field(default=None, ge=1, le=5)
     went_well: str = Field(default="", max_length=2000)
@@ -616,11 +708,18 @@ class RoutineUpdate(BaseModel):
 class RoutineLogUpdate(BaseModel):
     done: bool = True
     count: int | None = Field(default=None, ge=0, le=100)
+    # 그날 한 것 중 몰랐던 것. 안 보내면 이미 적어 둔 것을 그대로 둔다.
+    # 빈 문자열을 보내면 지운다 — 지우는 것도 사람의 선택이다.
+    learned: str | None = Field(default=None, max_length=2000)
 
 
 class TaskCompleteRequest(BaseModel):
     # 루틴이면 실제로 한 개수 (예: 코테 2문제). 비우면 목표만큼 한 것으로 본다.
     count: int | None = Field(default=None, ge=0, le=100)
+
+    # 실제로 걸린 시간. 안 보내도 된다 — 적어야만 끝낼 수 있게 하면
+    # 적기 싫어서 안 끝내게 되고, 그러면 기록이 더 나빠진다.
+    actual_minutes: int | None = Field(default=None, ge=0, le=1440)
 
 
 # --------------------------------
@@ -671,6 +770,28 @@ class PostingParseRequest(BaseModel):
     url: str = ""
 
 
+class PreferredCompanyCreate(BaseModel):
+    """가고 싶은 회사. rank 1(가장) ~ 3."""
+
+    name: str = Field(min_length=1, max_length=120)
+    note: str = Field(default="", max_length=500)
+    rank: int = Field(default=2, ge=1, le=3)
+
+
+class PreferredCompanyUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    note: str | None = Field(default=None, max_length=500)
+    rank: int | None = Field(default=None, ge=1, le=3)
+
+
+class PreferredCompanyResponse(PreferredCompanyCreate):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class OpportunityUpdate(BaseModel):
     opportunity_type: OpportunityType | None = None
     title: str | None = None
@@ -683,6 +804,7 @@ class OpportunityUpdate(BaseModel):
     deadline: datetime | None = None
     status: str | None = None
     estimated_hours: int | None = Field(default=None, ge=0)
+    favorite: bool | None = None
 
 
 class ExperienceUpdate(BaseModel):
@@ -697,6 +819,13 @@ class ExperienceUpdate(BaseModel):
     technologies: str | None = None
     metrics: str | None = None
     tags: str | None = None
+    stakeholders: str | None = None
+    contribution: str | None = None
+    obstacles: str | None = None
+    learned: str | None = None
+    reusable: str | None = None
+    target_roles: str | None = None
+    questions: str | None = None
     start_date: date | None = None
     end_date: date | None = None
     github_url: str | None = None
@@ -785,8 +914,9 @@ class ProfileUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=60)
     github_url: str | None = Field(default=None, max_length=300)
     blog_url: str | None = Field(default=None, max_length=300)
+    portfolio_url: str | None = Field(default=None, max_length=300)
 
-    @field_validator("github_url", "blog_url")
+    @field_validator("github_url", "blog_url", "portfolio_url")
     @classmethod
     def only_web_links(cls, value):
         # 화면이 이 값을 href 에 넣는다. javascript: 등은 받지 않는다.

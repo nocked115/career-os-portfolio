@@ -43,7 +43,11 @@ def _path_with_steps(db, title, dues):
 # 오늘 계획
 # --------------------------------
 
-def test_routines_take_time_first_but_not_the_task_slots(db_session):
+def test_routines_take_time_first_but_stay_out_of_the_plan(db_session):
+    """매일 하는 일은 오늘 고른 것이 아니다 — 계획에 섞지 않고 고정 칸에 둔다.
+
+    시간은 그대로 뗀다. 코테 30분은 실제로 30분이다.
+    """
     _routine(db_session, "코테", target=3, unit="문제")
     _routine(db_session, "coding rehab")
     in_ten = THURSDAY + timedelta(days=10)
@@ -51,21 +55,62 @@ def test_routines_take_time_first_but_not_the_task_slots(db_session):
 
     plan = today_service.generate_plan(db_session, 150, "light", today=THURSDAY)
 
-    types = [task["task_type"] for task in plan["tasks"]]
-    # 가볍게는 칸이 둘이다. 루틴 둘은 칸을 쓰지 않아서 학습 둘이 그대로 들어간다.
-    assert types == ["routine", "routine", "learning_step", "learning_step"]
-    assert plan["tasks"][0]["reason"].startswith("매일 하는 일 · 목표 3문제")
-    assert sum(task["minutes"] for task in plan["tasks"]) <= 150
+    assert [task["task_type"] for task in plan["tasks"]] == ["learning_step", "learning_step"]
+    assert [row["title"] for row in plan["routines"]] == ["코테", "coding rehab"]
+    assert plan["routines"][0]["target_text"] == "3문제"
+    # 루틴 30 + 30 을 뗀 나머지 90 분 안에서 고른다.
+    assert sum(task["minutes"] for task in plan["tasks"]) <= 90
 
 
-def test_an_urgent_learning_deadline_goes_before_routines(db_session):
+def test_the_summary_counts_the_time_routines_take(db_session):
+    """예산에서 뗀 시간은 요약에서도 세야 한다.
+
+    계획을 짤 때는 루틴 시간을 먼저 떼면서, 요약은 계획 **목록** 만 셌다.
+    그래서 "150분 중 90분" 이라고 말하는 화면에 코테 30분 · coding rehab
+    30분이 함께 떠 있었다. 남았다는 60분을 믿고 하나 더 넣으면 하루가 넘친다.
+    """
+    _routine(db_session, "코테")
+    _routine(db_session, "coding rehab")
+    in_ten = THURSDAY + timedelta(days=10)
+    _path_with_steps(db_session, "Tave", [in_ten, in_ten, in_ten])
+
+    plan = today_service.generate_plan(db_session, 150, "light", today=THURSDAY)
+
+    task_minutes = sum(task["minutes"] for task in plan["tasks"])
+
+    assert plan["routine_minutes"] == 60
+    assert plan["planned_minutes"] == task_minutes + 60
+    # 남은 시간은 실제로 쓸 수 있는 시간이다.
+    assert plan["remaining_minutes"] == 150 - plan["planned_minutes"]
+    assert plan["planned_minutes"] <= 150
+
+
+def test_a_routine_already_in_the_plan_is_not_counted_twice(db_session):
+    """두 번 세면 반대로 모자라다고 말한다."""
+    routine = _routine(db_session, "코테")
+
+    db_session.add(models.DailyPlanTask(
+        plan_date=THURSDAY, position=0, task_type="routine",
+        title="코테", minutes=30, reason="직접", status="planned",
+        routine_id=routine.id,
+    ))
+    db_session.commit()
+
+    plan = today_service.build_plan(db_session, THURSDAY, 150, "light")
+
+    assert plan["routine_minutes"] == 0
+    assert plan["planned_minutes"] == 30
+
+
+def test_an_urgent_learning_deadline_is_planned_while_the_routine_stays_pinned(db_session):
     _routine(db_session, "코테")
     _path_with_steps(db_session, "Tave", [THURSDAY + timedelta(days=2)])
 
     plan = today_service.generate_plan(db_session, 120, "normal", today=THURSDAY)
 
-    assert [task["task_type"] for task in plan["tasks"]] == ["learning_step", "routine"]
+    assert [task["task_type"] for task in plan["tasks"]] == ["learning_step"]
     assert plan["tasks"][0]["reason"].startswith("마감까지 2일")
+    assert [row["title"] for row in plan["routines"]] == ["코테"]
 
 
 def test_an_urgent_learning_deadline_is_not_crowded_out_by_carry_overs(db_session):
@@ -119,42 +164,42 @@ def test_routines_are_not_carried_over(db_session):
 
     plan = today_service.generate_plan(db_session, 120, "normal", today=THURSDAY)
 
-    assert len(plan["tasks"]) == 1
-    assert plan["tasks"][0]["carried_from"] is None
+    # 어제 남은 루틴 항목이 오늘로 넘어오지 않는다. 루틴은 이제 계획에 들어가지도 않는다.
+    assert plan["tasks"] == []
+    assert [row["title"] for row in plan["routines"]] == ["코테"]
 
 
-def test_a_finished_routine_is_not_planned_again_the_same_day(db_session):
-    _routine(db_session, "코테")
+def test_a_finished_routine_shows_as_done_in_the_pinned_row(db_session):
+    routine = _routine(db_session, "코테", target=3, unit="문제")
+    routine_service.record(db_session, routine, THURSDAY, 3)
+    db_session.commit()
 
-    first = today_service.generate_plan(db_session, 120, "normal", today=THURSDAY)
-    task = db_session.get(models.DailyPlanTask, first["tasks"][0]["id"])
-    today_service.complete_task(db_session, task)
+    plan = today_service.generate_plan(db_session, 120, "normal", today=THURSDAY)
 
-    again = today_service.generate_plan(db_session, 120, "normal", today=THURSDAY)
-
-    assert [t["status"] for t in again["tasks"]] == ["done"]
+    assert plan["routines"][0]["done"] is True
+    assert plan["routines"][0]["count"] == 3
 
 
 # --------------------------------
 # 완료 · 기록
 # --------------------------------
 
-def test_completing_a_routine_logs_the_count_without_finishing_its_path_step(db_session):
+def test_recording_a_routine_keeps_its_path_step_open(db_session):
+    """루틴 기록은 그날 한 것만 남긴다. 30분 했다고 학습 단계가 끝나지 않는다."""
     path = _path_with_steps(db_session, "coding rehab", [None])
-    _routine(db_session, "rehab", path=path)
-    _routine(db_session, "코테", target=3, unit="문제")
+    rehab = _routine(db_session, "rehab", path=path)
+    coding = _routine(db_session, "코테", target=3, unit="문제")
 
-    plan = today_service.generate_plan(db_session, 120, "normal", today=THURSDAY)
-    rehab_task, coding_task = [db_session.get(models.DailyPlanTask, t["id"]) for t in plan["tasks"]]
+    log = routine_service.record(db_session, coding, THURSDAY, 2)
+    db_session.commit()
 
-    assert rehab_task.title == "rehab — 1주차"
+    assert routine_service.describe_log(coding, log) == "코테 2문제 기록 (목표 3문제)"
 
-    result = today_service.complete_task(db_session, coding_task, count=2)
-    assert result["effects"] == ["코테 2문제 기록 (목표 3문제)"]
+    routine_service.record(db_session, rehab, THURSDAY)
+    db_session.commit()
 
-    today_service.complete_task(db_session, rehab_task)
     assert path.steps[0].status == "not_started"
-    assert rehab_task.routine.logs[0].log_date == THURSDAY
+    assert rehab.logs[0].log_date == THURSDAY
 
 
 def test_a_learning_task_with_unchecked_items_keeps_the_step_open(db_session):
@@ -221,7 +266,7 @@ def test_routine_api_validates_weekdays_and_logs_a_day(client):
 
     today = date.today().isoformat()
     logged = client.put(f"/routines/{created['id']}/logs/{today}", json={"count": 2}).json()
-    assert logged["today_log"] == {"count": 2}
+    assert logged["today_log"] == {"count": 2, "learned": ""}
 
     cleared = client.put(f"/routines/{created['id']}/logs/{today}", json={"done": False}).json()
     assert cleared["today_log"] is None

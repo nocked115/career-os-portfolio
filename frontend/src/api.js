@@ -164,7 +164,14 @@ export const learningPaths = {
   create: (body) => post("/learning-paths", body),
   update: (id, body) => patch(`/learning-paths/${id}`, body),
   remove: (id) => del(`/learning-paths/${id}`),
-  progress: (id) => get(`/learning-paths/${id}/progress`)
+  progress: (id) => get(`/learning-paths/${id}/progress`),
+  /* 로드맵 한 장을 통째로 — 경로 + 단계 전부 + 마지막 프로젝트.
+     parse 는 보여주기만 하고, import 가 실제로 만든다. */
+  parseRoadmap: (text) => post("/learning-paths/parse-roadmap", { text }),
+  importRoadmap: (text, skillId) =>
+    post("/learning-paths/import-roadmap", { text, skill_id: skillId ?? null }),
+  // 전체에서 오늘 할 몫 — 남은 시간 ÷ 남은 날.
+  pace: (id) => get(`/learning-paths/${id}/pace`)
 }
 
 export const learningSteps = {
@@ -172,6 +179,10 @@ export const learningSteps = {
   create: (body) => post("/learning-steps", body),
   update: (id, body) => patch(`/learning-steps/${id}`, body),
   remove: (id) => del(`/learning-steps/${id}`),
+  /* 순서 바꾸기는 경로 단위로 통째로 보낸다. (path, position) 이 유니크라
+     한 단계씩 PATCH 로 맞바꾸면 중간에 반드시 겹쳐서 409 가 난다. */
+  reorder: (pathId, stepIds) =>
+    post(`/learning-paths/${pathId}/steps/reorder`, { step_ids: stepIds }),
 
   // Mission 022
   session: (id) => get(`/learning-steps/${id}/session`),
@@ -186,7 +197,13 @@ export const learningSteps = {
   linkResource: (id, resourceId) =>
     post(`/learning-steps/${id}/resources/${resourceId}`),
   unlinkResource: (id, resourceId) =>
-    del(`/learning-steps/${id}/resources/${resourceId}`)
+    del(`/learning-steps/${id}/resources/${resourceId}`),
+  /* 이 단계가 덮는 **장**. 자료 단위 연결만으로는 "3주차는 핸즈온 4장" 을
+     적을 수 없어서, 단계를 끝내도 그 장이 그대로 남았다. */
+  attachSegment: (id, segmentId) =>
+    post(`/learning-steps/${id}/segments/${segmentId}`),
+  detachSegment: (id, segmentId) =>
+    del(`/learning-steps/${id}/segments/${segmentId}`)
 }
 
 // --------------------
@@ -204,10 +221,22 @@ export const todayPlan = {
   deadlines: () => get("/today/deadlines"),
   // 루틴이면 body 에 { count } — 실제로 푼 개수. 비우면 목표만큼 한 것으로 본다.
   complete: (taskId, body) => post(`/today/tasks/${taskId}/complete`, body),
-  skip: (taskId) => post(`/today/tasks/${taskId}/skip`),
+  // 까닭을 적을 수 있다 — 안 한 것도 기록이다.
+  skip: (taskId, reason) =>
+    post(`/today/tasks/${taskId}/skip`, reason ? { reason } : undefined),
   // 잘못 누른 완료 · 넘김 되돌리기. 루틴이면 그날 기록도 지운다.
+  // 시간이 남아 하고 싶은 것을 직접 넣는다 — 프로젝트 · 학습 단계 · 자료 · 직접 적기
+  addTask: (body) => post("/today/tasks", body),
   reopen: (taskId) => post(`/today/tasks/${taskId}/reopen`),
-  revive: (taskId) => post(`/today/tasks/${taskId}/revive`)
+  revive: (taskId) => post(`/today/tasks/${taskId}/revive`),
+  // 기한 없이 빼두기 — 치우기와 달리 남는다. 거기서 바로 끝낼 수 있다.
+  park: (taskId) => post(`/today/tasks/${taskId}/park`),
+  unpark: (taskId) => post(`/today/tasks/${taskId}/unpark`),
+  // 계획은 제안이지 명령이 아니다 — 제목 · 시간을 그 자리에서 고친다.
+  editTask: (taskId, body) => patch(`/today/tasks/${taskId}`, body),
+  // 넘기기 · 빼두기와 다르다. 저 둘은 "안 한다" 를 기록으로 남기고,
+  // 이건 애초에 없던 일로 지운다.
+  removeTask: (taskId) => del(`/today/tasks/${taskId}`)
 }
 
 // --------------------
@@ -221,7 +250,9 @@ export const library = {
     post(`/resources/${resourceId}/segments`, body),
   updateSegment: (id, body) => patch(`/segments/${id}`, body),
   removeSegment: (id) => del(`/segments/${id}`),
-  completeSegment: (id) => post(`/segments/${id}/complete`),
+  // 읽고 남길 한 줄을 같이 보낸다. 안 보내면 이미 적은 것을 그대로 둔다.
+  completeSegment: (id, note) =>
+    post(`/segments/${id}/complete`, note == null ? undefined : { note }),
   setShelf: (resourceId, shelf) => post(`/resources/${resourceId}/shelf?to=${shelf}`),
   addToPlan: (resourceId) => post(`/resources/${resourceId}/add-to-plan`),
   selection: (stepId, minutes) =>
@@ -254,7 +285,11 @@ export const routines = {
   create: (body) => post("/routines", body),
   update: (id, body) => patch(`/routines/${id}`, body),
   remove: (id) => del(`/routines/${id}`),
-  log: (id, isoDate, body) => put(`/routines/${id}/logs/${isoDate}`, body)
+  log: (id, isoDate, body) => put(`/routines/${id}/logs/${isoDate}`, body),
+  // 적어 둔 "몰랐던 것" 모아보기. 루틴 카드는 7일만 보여 주는데,
+  // 이걸 다시 볼 때는 한 주가 아니라 코테 전날이다.
+  learned: (routineId) =>
+    get(routineId ? `/routines/learned?routine_id=${routineId}` : "/routines/learned")
 }
 
 // 학습 단계 체크리스트. parse 는 저장하지 않고 링크도 열지 않는다.
@@ -303,8 +338,19 @@ export const skills = {
   // 같은 이름(대소문자 · 띄어쓰기 무시)이 있으면 409 로 거절한다.
   create: (body) => post("/skills", body),
   setLevel: (skillId, level) => patch(`/skills/${skillId}`, { level }),
+  // 전공(도구) ↔ 교양(배경지식). 대학교의 그 구분과 같다 —
+  // 도구는 손에 익히는 것, 배경지식은 읽고 아는 것.
+  setTrack: (skillId, track) => patch(`/skills/${skillId}`, { track }),
   levelEvents: (skillId) => get(`/skills/${skillId}/level-events`)
 }
+
+/* 지원 자격이 안 되는 공고 (석사 필수 · 경력 3년 …).
+   지우지 않고 까닭을 적어 둔다 — 그래야 "이 스킬 공고 4건 중 3건이
+   석사 요구" 를 말할 수 있다. 비워 보내면 되돌린다. */
+export const blockOpportunity = (id, reason) =>
+  post(`/opportunities/${id}/block`, { reason })
+
+export const blockedSkills = () => get("/analytics/blocked-skills")
 
 export const opportunityMap = (opportunityId) =>
   get(`/opportunities/${opportunityId}/map`)
@@ -361,12 +407,17 @@ export const opportunities = {
   recommended: (limit = 3) =>
     get(`/opportunities/recommended?limit=${limit}`),
   collect: () => post("/opportunities/collect"),
+  // 출처별 마지막 수집 결과. 막힌 수집기를 화면이 말하려면 이게 있어야 한다.
+  sources: () => get("/opportunities/sources"),
   parse: (text, url = "") => post("/opportunities/parse", { text, url }),
   // 알림 메일 하나에 든 여러 건을 공고 단위로 자른다. 하나뿐이면 count 0.
   split: (text) => post("/opportunities/split", { text }),
   // 공고 주소 한 건 가져오기. robots 가 막으면 422 와 이유가 온다 — 그때는 붙여넣기로.
   fetchUrl: (url) => post("/opportunities/fetch-url", { url }),
   setStatus: (id, status) => patch(`/opportunities/${id}`, { status }),
+  // 즐겨찾기 — 마감이 멀어 오늘 계획에 안 뜨는 공고를 눈에서 놓치지 않기 위한 표시.
+  favorite: (id) => post(`/opportunities/${id}/favorite`),
+  unfavorite: (id) => del(`/opportunities/${id}/favorite`),
   // 지원서가 달린 기회는 서버가 409 로 거절한다 (지원 기록은 지우지 않는다).
   remove: (id) => del(`/opportunities/${id}`),
   // 직무가 달라 자동으로 뺀 공고를 되살린다. 다시 자동으로 빼지 않는다.
@@ -377,6 +428,9 @@ export const opportunities = {
 
 export const marketSignals = {
   get: (limit) => get(`/analytics/market-signals${limit ? `?limit=${limit}` : ""}`),
+  // 공고에 적혀 있는데 내 스킬 목록에 없는 도구. 목록이 닫혀 있으면
+  // 앱은 모르는 도구를 영원히 모른다 — 순위표가 멀쩡해 보여도 그렇다.
+  gaps: () => get("/analytics/skill-gaps"),
   snapshot: () => post("/analytics/market-snapshots")
 }
 
@@ -462,4 +516,15 @@ export const coverLetter = {
     post(`/cover-letter-questions/${questionId}/answers`, { question_id: questionId, draft }),
   review: (questionId, draft) =>
     post(`/cover-letter-questions/${questionId}/review?draft=${encodeURIComponent(draft)}`)
+}
+
+// --------------------
+// 가고 싶은 회사 — 매칭 점수에 얹는다 (rank 1 이 가장 가고 싶음, 3 까지)
+// --------------------
+
+export const preferredCompanies = {
+  list: () => get("/preferred-companies"),
+  add: (body) => post("/preferred-companies", body),
+  update: (id, body) => patch(`/preferred-companies/${id}`, body),
+  remove: (id) => del(`/preferred-companies/${id}`)
 }

@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from . import models, schemas, collector
 import os 
 from dotenv import load_dotenv
@@ -77,7 +78,10 @@ def fetch_jobs():
                 "role": "data_scientist",
                 "employment_type": "intern",
                 "url": "https://example.com/mock-job",
-                "deadline": "2026-09-30",
+                # 날짜를 박아두면 그날이 지난 뒤 "마감 지난 공고" 가 되어
+                # 수요 집계에서 빠진다 — 테스트가 날짜에 묶인다.
+                # 열려 있는 샘플이어야 하므로 오늘 기준으로 만든다.
+                "deadline": (date.today() + timedelta(days=30)).isoformat(),
                 "description": (
                     "Python, SQL, Statistics and "
                     "Machine Learning experience preferred."

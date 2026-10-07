@@ -9,6 +9,7 @@ from .. import models, schemas
 from ..database import get_db
 from ..services import checklist as checklist_service
 from ..services import learning as learning_service
+from ..services import roadmap as roadmap_service
 from ..services import step_output as step_output_service
 from ..services import today as today_service
 from ._common import apply_update, delete_instance, ensure_exists, get_or_404
@@ -288,6 +289,100 @@ def update_learning_step(
     return step
 
 
+@router.post("/learning-paths/parse-roadmap")
+def parse_roadmap(body: schemas.RoadmapParseRequest):
+    """로드맵 글을 읽어서 보여주기만 한다. 저장하지 않는다.
+
+    경로 하나가 통째로 생기는 일이라, 사람이 먼저 보고 확인해야 한다.
+    """
+    try:
+        return roadmap_service.parse(body.text)
+    except roadmap_service.RoadmapError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.post("/learning-paths/import-roadmap", status_code=201)
+def import_roadmap(
+    body: schemas.RoadmapApplyRequest,
+    db: Session = Depends(get_db),
+):
+    """로드맵을 경로 · 단계 · 체크 항목 · 마지막 프로젝트로 만든다."""
+    try:
+        parsed = roadmap_service.parse(body.text)
+    except roadmap_service.RoadmapError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    if body.skill_id is not None:
+        get_or_404(db, models.Skill, body.skill_id, "Skill")
+
+    return roadmap_service.apply(db, parsed, skill_id=body.skill_id)
+
+
+@router.get("/learning-paths/{path_id}/pace")
+def get_learning_path_pace(path_id: int, db: Session = Depends(get_db)):
+    """전체에서 오늘 얼마나 해야 하는가.
+
+    로드맵에 24시간이라고 적혀 있어도 오늘 몇 분인지 안 나오면 계획이
+    안 된다. 남은 시간 ÷ 남은 날이 그 답이다. 목표일이 없으면 계산하지
+    않는다 — 지어낸 날짜로 나눈 숫자는 설명할 수 없다.
+    """
+    path = get_or_404(db, models.LearningPath, path_id, "Learning path")
+
+    return roadmap_service.pace(path)
+
+
+@router.post("/learning-paths/{path_id}/steps/reorder")
+def reorder_learning_steps(
+    path_id: int,
+    payload: schemas.LearningStepReorder,
+    db: Session = Depends(get_db),
+):
+    """단계 순서를 통째로 다시 매긴다.
+
+    한 단계씩 PATCH 로 못 옮긴다. (learning_path_id, position) 이 유니크라
+    두 줄을 맞바꾸려면 중간에 반드시 겹치는 순간이 생기고, 거기서 409 가 난다.
+    **전체 순서를 한 번에 받아서 한 트랜잭션으로 다시 매긴다.**
+
+    순서는 사람이 정해야 한다. 앱이 마감이나 등록 순서로 줄 세우면,
+    "앞 수업을 못 들어서 복습부터 해야 하는" 같은 사정을 넣을 자리가 없다.
+    실제로 추천시스템 경로에서 '1–2주차 복습' 이 3번째에 박혀 있었다.
+    """
+    path = get_or_404(db, models.LearningPath, path_id, "Learning path")
+
+    steps = {step.id: step for step in path.steps}
+
+    if set(payload.step_ids) != set(steps):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "이 경로의 단계를 모두, 한 번씩만 보내야 해요. "
+                f"(경로 단계 {len(steps)}개, 받은 것 {len(set(payload.step_ids))}개)"
+            ),
+        )
+
+    # 유니크 제약을 피해 두 번에 나눠 쓴다. 먼저 아무도 안 쓰는 자리로
+    # 모두 밀어두고, 그다음 제자리에 놓는다. 한 번에 쓰면 중간 상태에서
+    # 기존 position 과 겹친다.
+    offset = len(steps) + 1000
+
+    for index, step_id in enumerate(payload.step_ids):
+        steps[step_id].position = offset + index
+    db.flush()
+
+    for index, step_id in enumerate(payload.step_ids):
+        steps[step_id].position = index
+
+    db.commit()
+
+    return {
+        "path_id": path.id,
+        "steps": [
+            {"id": step.id, "title": step.title, "position": step.position}
+            for step in sorted(path.steps, key=lambda s: s.position)
+        ],
+    }
+
+
 @router.delete("/learning-steps/{step_id}")
 def delete_learning_step(
     step_id: int,
@@ -422,6 +517,60 @@ def unlink_resource_from_step(
     return {"message": f"{resource.title} unlinked from {step.title}"}
 
 
+@router.post("/learning-steps/{step_id}/segments/{segment_id}")
+def attach_segment_to_step(
+    step_id: int,
+    segment_id: int,
+    db: Session = Depends(get_db),
+):
+    """이 단계가 자료의 **어느 장** 을 덮는지 적는다.
+
+    자료 단위 연결(resources)만으로는 "3주차는 핸즈온 4장" 을 적을 수
+    없었다. 그래서 단계를 끝내도 그 장이 그대로 남아, 같은 공부를 두
+    군데서 체크해야 했다.
+
+    조각 하나는 단계 하나에만 속한다. 다른 단계에 붙어 있었으면 옮긴다.
+    """
+    step = get_or_404(db, models.LearningStep, step_id, "Learning step")
+    segment = get_or_404(
+        db, models.LearningResourceSegment, segment_id, "Segment"
+    )
+
+    segment.learning_step_id = step.id
+
+    # 그 자료도 단계에 이어 둔다 — 장을 덮는데 책이 안 걸려 있으면
+    # 세션 화면에서 그 자료가 안 보인다.
+    if segment.resource not in step.resources:
+        step.resources.append(segment.resource)
+
+    db.commit()
+
+    return {
+        "segment_id": segment.id,
+        "label": segment.label,
+        "learning_step_id": step.id,
+        "step_title": step.title,
+    }
+
+
+@router.delete("/learning-steps/{step_id}/segments/{segment_id}")
+def detach_segment_from_step(
+    step_id: int,
+    segment_id: int,
+    db: Session = Depends(get_db),
+):
+    get_or_404(db, models.LearningStep, step_id, "Learning step")
+    segment = get_or_404(
+        db, models.LearningResourceSegment, segment_id, "Segment"
+    )
+
+    if segment.learning_step_id == step_id:
+        segment.learning_step_id = None
+        db.commit()
+
+    return {"segment_id": segment.id, "learning_step_id": None}
+
+
 @router.get(
     "/learning-steps/{step_id}/resources",
     response_model=list[schemas.LearningResourceResponse],
@@ -511,8 +660,29 @@ def complete_learning_step(
         task.status = "done"
         task.completed_at = datetime.now()
 
+    # 이 단계가 덮는 자료의 장도 같이 끝낸다. 안 그러면 같은 공부를
+    # 두 군데서 체크하게 되고, 내 자료 쪽 진행률이 영영 안 올라간다.
+    finished_segments = [
+        segment for segment in step.segments
+        if segment.status != "completed"
+    ]
+
+    for segment in finished_segments:
+        segment.status = "completed"
+        segment.completed_at = datetime.now()
+
     db.commit()
     db.refresh(step)
+
+    # 자료의 모든 장이 끝났으면 자료도 완료로 올린다 (library 와 같은 규칙).
+    for resource in {segment.resource for segment in finished_segments}:
+        if resource.segments and all(
+            item.status == "completed" for item in resource.segments
+        ):
+            resource.status = "completed"
+
+    if finished_segments:
+        db.commit()
 
     summary = learning_service.recalculate_path_progress(db, path)
 
@@ -532,6 +702,11 @@ def complete_learning_step(
     for task in today_tasks:
         effects.append(f"오늘 계획의 '{task.title}' 도 완료로 표시했습니다")
 
+    for segment in finished_segments:
+        effects.append(
+            f"'{segment.resource.title} — {segment.label}' 도 읽은 것으로 남겼습니다"
+        )
+
     # 완료는 사람이 정한다. 다만 체크 안 한 항목이 남았다는 사실은 숨기지 않는다.
     unchecked = checklist_service.remaining(step)
     if unchecked:
@@ -547,6 +722,9 @@ def complete_learning_step(
     )
 
     return {
+        # 끝낸 자리가 가장 많은 것이 모여 있는 때다. 그냥 흘려보내면
+        # 나중에 경험으로 꺼낼 때 "내가 뭘 했더라" 를 더듬어야 한다.
+        "receipt": learning_service.completion_receipt(db, step),
         "step_id": step.id,
         "status": step.status,
         "completed_at": step.completed_at,

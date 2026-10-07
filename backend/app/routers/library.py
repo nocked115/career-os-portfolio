@@ -156,13 +156,23 @@ def delete_segment(segment_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/segments/{segment_id}/complete")
-def complete_segment(segment_id: int, db: Session = Depends(get_db)):
-    """이 조각을 끝냈다. 자료의 모든 조각이 끝나면 자료도 완료가 된다."""
+def complete_segment(
+    segment_id: int,
+    payload: schemas.SegmentComplete | None = None,
+    db: Session = Depends(get_db),
+):
+    """이 조각을 끝냈다. 자료의 모든 조각이 끝나면 자료도 완료가 된다.
+
+    읽고 남길 한 줄(`note`)을 같이 받는다. 읽기만 하고 아무것도 안 남으면
+    나중에 "이 책에서 뭘 얻었나" 에 답할 수 없다.
+    """
     segment = get_or_404(
         db, models.LearningResourceSegment, segment_id, "Segment"
     )
 
-    return library_service.complete_segment(db, segment)
+    return library_service.complete_segment(
+        db, segment, note=payload.note if payload else None
+    )
 
 
 # --------------------------------

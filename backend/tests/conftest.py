@@ -10,6 +10,11 @@ import tempfile
 TEST_DB_PATH = os.path.join(tempfile.mkdtemp(), "career_os_test.db")
 os.environ["CAREER_OS_DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
+# 수집 테스트는 mock 수집원을 쓴다. 실제 사이트에 요청을 보낼 수는 없다.
+# 앱에서는 기본으로 꺼져 있다 — 로컬이 곧 실사용이 된 뒤로 가짜 공고가
+# 진짜 데이터에 섞였기 때문이다 (collectors/mock.py 참고).
+os.environ["CAREER_OS_MOCK"] = "1"
+
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
@@ -74,6 +79,13 @@ def no_real_collector_keys(monkeypatch):
     """
     for name in ("WORK24_API_KEY", "SARAMIN_API_KEY"):
         monkeypatch.delenv(name, raising=False)
+
+    # 기업 채용 보드(Greenhouse)는 키가 없어도 열린다. 그래서 키를 지우는 것만으로는
+    # 막히지 않는다 — 보드 목록을 비워 끈다. 쓰는 테스트가 직접 켠다.
+    monkeypatch.setenv("CAREER_OS_GREENHOUSE_BOARDS", "")
+    # 카카오도 키 없이 열린다. 테스트에서는 끈다 — 쓰는 테스트가 가짜 응답을 넣는다.
+    monkeypatch.setenv("CAREER_OS_KAKAO", "0")
+    monkeypatch.setenv("CAREER_OS_LINKAREER", "0")
 
 
 @pytest.fixture

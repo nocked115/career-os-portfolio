@@ -8,6 +8,9 @@
 # 3. 녹화 파일을 빌드 결과 옆에 둔다
 #
 # 진짜 데이터 · 인증키는 쓰지 않는다. 임시 DB 만 쓰고, 외부 API 키는 녹화 전에 지운다.
+#
+# notes/ 는 공개 스냅샷에 넣지 않는다 — 수업 자료 · 지원 기록 · 개인 일정이 있는 곳이다.
+# 공개 저장소로 옮기는 것은 backend/ · frontend/ · docs/ · scripts/ 뿐이다 (notes/README.md).
 
 set -euo pipefail
 

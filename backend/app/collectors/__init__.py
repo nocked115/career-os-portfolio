@@ -21,7 +21,7 @@
 - 값을 추측해서 채우지 않는다. 없으면 비운다.
 """
 
-from . import base, mock, saramin, work24, work24_events
+from . import base, greenhouse, kakao, linkareer, mock, saramin, work24, work24_events
 
 
 REGISTRY = {
@@ -29,6 +29,9 @@ REGISTRY = {
     saramin.SOURCE_NAME: saramin,
     work24.SOURCE_NAME: work24,
     work24_events.SOURCE_NAME: work24_events,
+    greenhouse.SOURCE_NAME: greenhouse,
+    kakao.SOURCE_NAME: kakao,
+    linkareer.SOURCE_NAME: linkareer,
 }
 
 
@@ -48,6 +51,9 @@ def available_collectors() -> list:
 
 __all__ = [
     "base",
+    "greenhouse",
+    "kakao",
+    "linkareer",
     "REGISTRY",
     "get_collector",
     "available_collectors",

@@ -293,3 +293,257 @@
     flex: 1;
   }
 }
+
+/* ---------- 매일 하는 것 (계획 위 고정) ---------- */
+
+.td-routines {
+  /* 계획 카드 위 독립 카드. 왼쪽에 색 띠를 둬서 "늘 여기 있는 것" 으로 읽히게. */
+  padding: 16px 18px;
+  border-left: 3px solid var(--action);
+}
+
+.td-routines-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.td-routines-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.td-routine-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  margin: 8px 0 0;
+  padding: 0;
+
+  list-style: none;
+}
+
+.td-routine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 14px 16px;
+
+  border: 1px solid var(--line);
+  border-radius: 12px;
+
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.td-routine:hover {
+  border-color: var(--action-line);
+  background: #fbfcff;
+}
+
+.td-routine-done,
+.td-routine-done:hover {
+  background: var(--ok-soft);
+  border-color: #bfe0cd;
+}
+
+.td-routine-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.td-routine-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 이번 주 — 할 차례였던 날 수만큼 점을 찍고, 한 날은 채운다 */
+.td-routine-week {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.td-routine-week i {
+  width: 7px;
+  height: 7px;
+
+  border: 1px solid var(--action-line);
+  border-radius: 50%;
+}
+
+.td-routine-week i.on {
+  background: var(--action);
+  border-color: var(--action);
+}
+
+.td-routine .ui-row {
+  gap: 10px;
+}
+
+.td-routine-main .muted {
+  font-size: 12.5px;
+}
+
+/* "오늘은 이것만" — 접지 않는다. 제품의 차별점이라 열어야 보이면 안 된다 */
+.td-enough {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+
+  border-radius: 10px;
+  background: var(--ok-soft);
+  border: 1px solid #bfe0cd;
+
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.td-enough strong {
+  color: var(--ok);
+}
+
+/* ---------- 직접 넣기 ---------- */
+
+.td-add-open {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+
+  margin-top: 16px;
+}
+
+.td-add {
+  display: grid;
+  gap: 12px;
+
+  margin-top: 16px;
+  padding: 14px 16px;
+
+  border: 1px dashed var(--action-line);
+  border-radius: 12px;
+  background: #fbfcff;
+}
+
+.td-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  align-items: flex-end;
+}
+
+.td-add-wide {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.td-add-minutes {
+  width: 96px;
+}
+
+/* 오늘 한 것 중 몰랐던 것.
+   개수를 적는 자리 바로 아래다 — 끝낸 직후가 가장 잘 떠오른다.
+   (.td-routine-done 은 줄 전체의 완료 표시라 여기서 쓰지 않는다) */
+.td-routine-recorded {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+/* 적는 칸은 줄 하나를 다 쓴다.
+   .td-routine 이 좌우 2칸 flex 라, 오른쪽 칸에 두면 왼쪽이 텅 빈 채
+   입력칸만 좁게 찌그러진다 (justify-items: end 때문에 글도 오른쪽으로 붙었다).
+   flex-basis 100% 로 다음 줄에 내리고 왼쪽 정렬로 되돌린다. */
+.td-routine-learn {
+  flex: 1 0 100%;
+
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+
+  margin-top: 2px;
+  text-align: left;
+}
+
+.td-routine-learn label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.td-routine-learn textarea {
+  width: 100%;
+  min-height: 62px;
+  resize: vertical;
+  font: inherit;
+  text-align: left;
+}
+
+.td-routine-learned {
+  flex: 1 0 100%;
+
+  margin: 2px 0 0;
+
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  text-align: left;
+}
+
+/* 계획 한 줄을 그 자리에서 고치는 칸. 접어 두었다가 "고치기" 로 편다 —
+   늘 펴 두면 훑어보기가 어렵다. */
+.td-task-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  margin: 2px 0 6px;
+}
+
+.td-edit-title {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+/* 읽고 남길 한 줄. 끝내는 버튼과 같은 칸에 둔다 — 다 읽은 직후가
+   가장 잘 떠오르고, 나중에 다시 열 이유가 줄어든다. */
+.td-howto-field {
+  display: grid;
+  gap: 4px;
+
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.td-howto-note-input {
+  width: 100%;
+  resize: vertical;
+}
+
+/* 지난번에 남긴 것. 읽는 줄이지 적는 줄이 아니라서 한 칸 들여 둔다. */
+.td-howto-last {
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+
+/* 오늘 몫 — 주차 안에서 어디서부터 어디까지.
+   주차 하나가 9시간이면 통째로 "오늘 할 일" 이 될 수 없다. */
+.td-slice {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.td-slice-range {
+  font-size: 13px;
+  color: var(--ink);
+}

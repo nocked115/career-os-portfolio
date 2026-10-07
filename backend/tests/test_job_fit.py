@@ -148,3 +148,27 @@ def test_postings_with_an_application_or_from_other_sources_are_not_touched(db_s
     db_session.refresh(applied)
     assert manual.filtered_reason == ""
     assert applied.filtered_reason == ""
+
+
+def test_a_blocked_collector_is_remembered_not_swallowed(client, db_session):
+    """수집기가 막히면 그 출처만 0건이 되고 전체는 "성공" 으로 끝난다 — 그걸 기록해 둔다."""
+    from app.collectors import base as collector_base
+
+    class Blocked:
+        SOURCE_NAME = "kakao"
+
+        @staticmethod
+        def is_available():
+            return True
+
+        @staticmethod
+        def fetch():
+            raise collector_base.CollectorError("카카오 채용 목록이 403 으로 답했어요")
+
+    result = opportunity_service.collect_from(db_session, Blocked)
+    assert result["status"] == "failed"
+
+    body = client.get("/opportunities/sources").json()
+
+    assert body["failed"] == ["kakao"]
+    assert "403" in body["sources"][0]["error"]

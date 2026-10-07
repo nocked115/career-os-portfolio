@@ -278,9 +278,43 @@
 /* 휴지통 — 줄 오른쪽 바깥. 줄을 누르는 자리와 겹치지 않게 떼어 둔다. */
 .opp-row-wrap {
   display: grid;
+  /* 카드 · 별 · 휴지통. 별을 넣으며 2열로 두었더니 휴지통이 다음 줄로 밀려
+     줄마다 아이콘 한 줄이 더 생겼다. 오른쪽 버튼은 몇 개든 한 칸에 모은다. */
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
   align-items: center;
+}
+
+.opp-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 즐겨찾기 별. 휴지통과 나란히 두되 색으로 갈라진다 — 하나는 지우는 것, 하나는 두는 것. */
+.opp-star {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.opp-star:hover:not(:disabled),
+.opp-star:focus-visible {
+  border-color: var(--line);
+  background: var(--surface-soft, rgba(0, 0, 0, 0.04));
+  color: var(--text);
+}
+
+.opp-star-on {
+  color: #d99100;
 }
 
 .opp-trash {
@@ -319,4 +353,35 @@
   line-height: 1.5;
   color: var(--text-soft);
   text-align: right;
+}
+
+/* 지원 자격이 안 되는 공고. 지우지 않고 까닭을 남긴다. */
+.opp-blocked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  margin: 8px 0 0;
+  padding: 8px 12px;
+
+  border-left: 3px solid var(--evidence, #c2802a);
+  border-radius: 0 8px 8px 0;
+  background: var(--tint, #f5f6fa);
+
+  font-size: 12.5px;
+}
+
+.opp-block-form {
+  display: grid;
+  gap: 8px;
+
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft, #eceef1);
+}
+
+/* 자격 때문에 막힌 비중 — 수요 막대와 구분한다. */
+.signal-fill-warn {
+  background: var(--evidence, #c2802a);
 }

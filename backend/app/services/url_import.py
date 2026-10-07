@@ -32,6 +32,11 @@ MAX_BYTES = 2_000_000
 BLOCKED_HOST_WORDS = ("localhost", "metadata.google.internal")
 
 SCRIPT_STYLE = re.compile(r"<(script|style|noscript)\b.*?</\1>", re.I | re.S)
+# <head> 안의 글(제목 · 메타)은 본문이 아니다. 걷지 않으면 제목이 첫 문단에 들러붙는다.
+HEAD_BLOCK = re.compile(r"<head\b.*?</head>", re.I | re.S)
+TITLE_TAG = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+# "[회사] 공고 제목 - 사람인" 처럼 사이트 이름이 꼬리에 붙는다. 제목 칸에 그대로 들어가면 지저분하다.
+TITLE_TAIL = re.compile(r"\s*[-|｜–—]\s*(사람인|잡코리아|원티드|인크루트|링크드인|LinkedIn|Wanted|JobKorea|Saramin)\s*$", re.I)
 BREAKS = re.compile(r"</(p|div|li|tr|h[1-6]|section|article|br)\s*>|<br\s*/?>", re.I)
 TAGS = re.compile(r"<[^>]+>")
 SPACES = re.compile(r"[ \t\x0b\f\r]+")
@@ -114,9 +119,22 @@ def _open(url: str) -> str:
         raise ImportError_("공고 페이지를 열지 못했어요. 본문을 복사해 붙여넣어 주세요.") from error
 
 
+def page_title(html: str) -> str:
+    """<title> 에서 사이트 이름 꼬리를 뗀 제목."""
+    found = TITLE_TAG.search(html or "")
+
+    if not found:
+        return ""
+
+    title = SPACES.sub(" ", TAGS.sub(" ", found.group(1))).strip()
+
+    return TITLE_TAIL.sub("", title).strip()
+
+
 def to_text(html: str) -> str:
     """태그를 걷고 글자만 남긴다. 줄 구분은 살린다 — 파서가 줄 단위로 읽는다."""
-    text = SCRIPT_STYLE.sub(" ", html)
+    text = HEAD_BLOCK.sub(" ", html or "")
+    text = SCRIPT_STYLE.sub(" ", text)
     text = BREAKS.sub("\n", text)
     text = TAGS.sub(" ", text)
     text = (
@@ -124,9 +142,25 @@ def to_text(html: str) -> str:
         .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
     )
     text = SPACES.sub(" ", text)
-    text = "\n".join(line.strip() for line in text.splitlines())
 
-    return BLANKS.sub("\n\n", text).strip()
+    # 메뉴 · 푸터가 같은 줄을 여러 번 만든다 ("공채는 역시, 사람인" 이 두 번).
+    # 같은 줄이 반복되면 한 번만 남긴다 — 제목 · 회사를 고를 때 방해가 된다.
+    lines, seen = [], set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line and line in seen and len(line) < 40:
+            continue
+        seen.add(line)
+        lines.append(line)
+
+    return BLANKS.sub("\n\n", "\n".join(lines)).strip()
+
+
+# 이보다 글이 적으면 화면을 그려야 보이는 공고로 본다.
+THIN_TEXT = 100
+
+# 이 정도까지는 읽히지만 본문이라기엔 얇다 — 미리보기는 주되 붙여넣기를 권한다.
+WEAK_TEXT = 2500
 
 
 def fetch_posting(url: str, opener=None) -> str:
@@ -140,9 +174,20 @@ def fetch_posting(url: str, opener=None) -> str:
             "공고 본문을 복사해 아래에 붙여넣어 주세요."
         )
 
-    text = to_text(opener(url))
+    html = opener(url)
+    text = to_text(html)
+    title = page_title(html)
 
-    if len(text) < 100:
+    # 큰 포털은 목록 · 메뉴만 글로 남고 본문은 화면을 그려야 보인다. 제목이라도 살려 둔다.
+    head, _, rest = text.partition("\n")
+    head = TITLE_TAIL.sub("", head).strip()
+
+    if title and title not in head:
+        text = f"{title}\n{head}\n{rest}" if head else f"{title}\n{rest}"
+    else:
+        text = f"{head}\n{rest}" if head else rest
+
+    if len(text) < THIN_TEXT:
         raise ImportError_(
             "페이지에서 글을 거의 찾지 못했어요(화면을 그려야 보이는 공고일 수 있어요). "
             "본문을 복사해 붙여넣어 주세요."

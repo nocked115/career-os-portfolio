@@ -134,6 +134,7 @@ def recent(routine, today: date, days: int = 7) -> list[dict]:
             "due": _was_due(routine, day),
             "count": log.count if log else None,
             "done": log is not None,
+            "learned": (log.learned or "") if log else "",
         })
     return rows
 
@@ -175,7 +176,9 @@ def serialize(routine, today: date) -> dict:
         "link_url": routine.link_url,
         "note": routine.note,
         "due_today": is_due(routine, today),
-        "today_log": {"count": log.count} if log else None,
+        "today_log": (
+            {"count": log.count, "learned": log.learned or ""} if log else None
+        ),
         "week": week_summary(routine, today),
         "recent": recent(routine, today),
         "suggestion": suggestion(routine, today),
@@ -244,18 +247,66 @@ def plan_candidates(db, today: date, exclude: set) -> list[dict]:
     return candidates
 
 
-def record(db, routine, day: date, count: int | None = None):
-    """그날 했다고 남긴다. 개수를 안 주면 목표만큼 한 것으로 본다."""
-    log = _logs_by_date(routine).get(day)
+def record(db, routine, day: date, count: int | None = None, learned: str | None = None):
+    """그날 했다고 남긴다. 개수를 안 주면 목표만큼 한 것으로 본다.
 
-    if log is None:
+    learned 를 안 주면(None) 이미 적어 둔 것을 건드리지 않는다. 개수만 고치려고
+    다시 누를 때 그날 적어 둔 메모가 사라지면 안 된다.
+    """
+    log = _logs_by_date(routine).get(day)
+    is_new = log is None
+
+    if is_new:
         log = models.RoutineLog(routine_id=routine.id, log_date=day)
         db.add(log)
         routine.logs.append(log)
 
-    log.count = count if count is not None else routine.target_count
+    if count is not None:
+        log.count = count
+    elif is_new:
+        # 새로 남기는 날만 목표만큼 한 것으로 본다. 이미 있는 기록에
+        # 개수를 안 주면 그대로 둔다 — 메모만 고치려다 "2문제" 가
+        # "3문제" 로 올라가면 기록이 사실과 달라진다.
+        log.count = routine.target_count
+
     log.minutes = routine.minutes
+
+    if learned is not None:
+        log.learned = learned.strip()
+
     return log
+
+
+def learned_entries(db, limit: int = 200, routine_id: int | None = None) -> list[dict]:
+    """적어 둔 "몰랐던 것" 을 최근 날짜부터 모은다.
+
+    루틴 카드는 최근 7일만 보여 준다. 그런데 이 기록을 다시 볼 때는 한 주가
+    아니라 **코테 전날** 이다. 그래서 날짜를 가로질러 한 줄씩 모은다.
+    비어 있는 날은 빼고 — 안 적은 날까지 세면 목록이 기록이 아니라 달력이 된다.
+    """
+    query = (
+        db.query(models.RoutineLog, models.Routine)
+        .join(models.Routine, models.Routine.id == models.RoutineLog.routine_id)
+        .filter(models.RoutineLog.learned != "")
+    )
+
+    if routine_id is not None:
+        query = query.filter(models.RoutineLog.routine_id == routine_id)
+
+    rows = query.order_by(models.RoutineLog.log_date.desc()).limit(limit).all()
+
+    return [
+        {
+            "date": log.log_date,
+            "weekday": WEEKDAY_NAMES[log.log_date.weekday()],
+            "routine_id": routine.id,
+            "routine_title": routine.title,
+            "count": log.count,
+            "unit_label": routine.unit_label,
+            "learned": log.learned,
+        }
+        for log, routine in rows
+    ]
 
 
 def unrecord(db, routine, day: date) -> bool:

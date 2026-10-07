@@ -45,6 +45,66 @@ function Dots({ recent }) {
   )
 }
 
+/* 적어 둔 "몰랐던 것" 을 날짜를 가로질러 모아 본다.
+
+   루틴 카드의 점 일곱 개는 이번 주가 어땠는지를 보여 준다. 그런데 이 기록을
+   다시 열 때는 한 주가 아니라 **코테 전날** 이다. 그래서 따로 둔다.
+   안 적은 날은 빼고 — 빈 날까지 세면 목록이 기록이 아니라 달력이 된다. */
+function LearnedLog({ routines }) {
+  const [open, setOpen] = useState(false)
+  const [entries, setEntries] = useState(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    let alive = true
+    setFailed(false)
+    api.routines
+      .learned()
+      .then((data) => alive && setEntries(data.entries))
+      .catch((error) => {
+        console.error("Failed to load learned log:", error)
+        if (alive) setFailed(true)
+      })
+    return () => {
+      alive = false
+    }
+  }, [open, routines])
+
+  return (
+    <div className="rt-learned">
+      <button type="button" className="td-link" onClick={() => setOpen((value) => !value)}>
+        {open ? "몰랐던 것 접기" : "몰랐던 것 모아보기"}
+      </button>
+
+      {open && failed && <p className="muted">기록을 불러오지 못했습니다.</p>}
+
+      {open && !failed && entries === null && <p className="muted">불러오는 중…</p>}
+
+      {open && !failed && entries?.length === 0 && (
+        <p className="muted">
+          아직 적어 둔 게 없어요. 오늘 화면에서 루틴을 기록할 때 막힌 지점을 같이 적어 두면
+          여기에 쌓여요.
+        </p>
+      )}
+
+      {open && !failed && entries?.length > 0 && (
+        <ol className="rt-learned-list">
+          {entries.map((entry) => (
+            <li key={`${entry.routine_id}-${entry.date}`}>
+              <p className="muted">
+                {entry.date} ({entry.weekday}) · {entry.routine_title}
+                {entry.count != null ? ` ${entry.count}${entry.unit_label || "개"}` : ""}
+              </p>
+              <p>{entry.learned}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
 /* 이미 만든 루틴의 시작하는 곳 · 메모만 고친다. */
 function RoutineLinkEditor({ routine, working, onSave }) {
   const [open, setOpen] = useState(false)
@@ -53,18 +113,41 @@ function RoutineLinkEditor({ routine, working, onSave }) {
   // 시간도 여기서 고친다. 전에는 만들 때만 정할 수 있어서, 시험 전 사흘처럼
   // 잠깐 늘려야 할 때 루틴을 지우고 다시 만드는 수밖에 없었다.
   const [minutes, setMinutes] = useState(routine.minutes ?? 30)
+  // 요일도 여기서 고친다 — 코테는 평일, rehab 은 주말처럼 나눠 쓰게 된다.
+  const [days, setDays] = useState(routine.weekdays ?? [])
   const validMinutes = Number(minutes) >= 5 && Number(minutes) <= 600
+  const toggle = (day) =>
+    setDays((current) =>
+      current.includes(day)
+        ? current.filter((item) => item !== day)
+        : [...current, day].sort()
+    )
 
   if (!open) {
     return (
       <Button variant="quiet" writes onClick={() => setOpen(true)}>
-        시간 · 시작하는 곳 · 메모 고치기
+        요일 · 시간 · 시작하는 곳 고치기
       </Button>
     )
   }
 
   return (
     <div className="rt-form">
+      <fieldset className="rt-days">
+        <legend>요일</legend>
+        {DAYS.map((name, day) => (
+          <button
+            type="button"
+            key={name}
+            className={days.includes(day) ? "rt-day rt-day-on" : "rt-day"}
+            aria-pressed={days.includes(day)}
+            onClick={() => toggle(day)}
+          >
+            {name}
+          </button>
+        ))}
+      </fieldset>
+
       <label className="learn-field">
         <span>하루에 쓸 시간 (분, 5~600) — 오늘 계획이 이만큼 먼저 떼어 둬요</span>
         <input
@@ -100,11 +183,12 @@ function RoutineLinkEditor({ routine, working, onSave }) {
       <div className="ui-row">
         <Button
           writes
-          disabled={working || !validMinutes}
+          disabled={working || !validMinutes || days.length === 0}
           onClick={async () => {
             const saved = await onSave(
               () =>
                 api.routines.update(routine.id, {
+                  weekdays: days,
                   minutes: Number(minutes),
                   link_url: link.trim(),
                   note: note.trim()
@@ -123,6 +207,7 @@ function RoutineLinkEditor({ routine, working, onSave }) {
             setLink(routine.link_url ?? "")
             setNote(routine.note ?? "")
             setMinutes(routine.minutes ?? 30)
+            setDays(routine.weekdays ?? [])
             setOpen(false)
           }}
         >
@@ -373,6 +458,8 @@ export default function RoutinesCard({ onChanged }) {
           </li>
         ))}
       </ul>
+
+      {data.routines.length > 0 && <LearnedLog routines={data.routines} />}
 
       {showForm && (
         <div className="rt-form">

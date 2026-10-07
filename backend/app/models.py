@@ -91,6 +91,10 @@ class Profile(Base):
     github_url = Column(String, default="", server_default="", nullable=False)
     blog_url = Column(String, default="", server_default="", nullable=False)
 
+    # 지원서마다 내는 포트폴리오 주소. github_url(깃허브 프로필) · blog_url(블로그)과
+    # 다른 것이고, portfolio_entries 는 프로젝트 하나하나를 담는 표라 자리가 아니었다.
+    portfolio_url = Column(String, default="", server_default="", nullable=False)
+
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime,
@@ -312,6 +316,13 @@ class TargetCareer(Base):
 # Skill
 # --------------------------------
 
+# 스킬의 갈래. 대학교의 전공 · 교양과 같은 구분이다.
+TRACK_MAJOR = "major"      # 전공 — 손에 익히는 도구 (Python, SQL, PyTorch)
+TRACK_GENERAL = "general"  # 교양 — 읽고 아는 배경지식 (CS 기초, 인프라 개념)
+
+TRACKS = (TRACK_MAJOR, TRACK_GENERAL)
+
+
 class Skill(Base):
     __tablename__ = "skills"
 
@@ -332,6 +343,17 @@ class Skill(Base):
     # "Machine Learning" 은 안 걸리고, 영문 공고에 "머신러닝" 은
     # 안 걸린다. 한국 공고를 다루려면 이게 없으면 매번 터진다.
     aliases = Column(String, default="", server_default="", nullable=False)
+
+    # 전공(도구)인가 교양(배경지식)인가.
+    #
+    # 도구는 손에 익히는 것이고 배경지식은 읽고 아는 것이다. 순위표가 둘을
+    # 같은 줄에 세우면 "다음에 뭘 할까" 의 답이 안 나온다 — "Infrastructure"
+    # 가 수요 21% 로 5위에 올라와도 그걸 보고 뭘 공부할지는 알 수 없다.
+    # 공고에서 실제로 세어지는 건 GCP · BigQuery · Kubernetes 같은 구체적인
+    # 것들이다.
+    #
+    # 기본은 major. 교양으로 내리는 것은 사람이 보고 정한다.
+    track = Column(String, default=TRACK_MAJOR, server_default=TRACK_MAJOR, nullable=False)
 
     level_events = relationship(
         "SkillLevelEvent",
@@ -466,7 +488,22 @@ class Project(Base):
     )
     description = Column(Text, default="")
     status = Column(String, default="planned")
-    career_related = Column(Boolean, default=True)
+    career_related = Column(Boolean, default=True, nullable=False)
+
+    # 무엇을 위한 프로젝트인가. career_related 만으로는 셋을 못 가른다.
+    #   evidence  커리어 증거가 되는 심화 프로젝트 — 계획에 오르고, 스킬 증거로 센다
+    #   practice  수업 · 스터디 과제 같은 학습용 — 계획에는 오르지만 증거로 세지 않는다
+    #   hobby     취미 — 계획에도 안 오른다
+    # 학습용을 증거로 세면 "수업 과제를 했으니 그 스킬은 덜 급하다" 가 되어, 정작
+    # 포트폴리오에 쓸 것이 없는데 우선순위만 내려간다.
+    purpose = Column(String, default="evidence", server_default="evidence", nullable=False)
+
+    # 왜 이 프로젝트를 하려는가. 자유롭게 적는다.
+    #
+    # purpose 는 세 값 중 고르는 것이라 "무엇을 위한 것인가" 만 말한다. 그런데 공고에
+    # 쓸지 판단하려면 **왜 하고 싶은지** 가 필요하다 — 어떤 질문에 답하려는 프로젝트인지,
+    # 무엇을 증명하려는지. status="idea" 로 세워둔 기획안에서 특히 이 칸이 판단 근거가 된다.
+    why = Column(Text, default="", server_default="", nullable=False)
     estimated_hours = Column(Integer, default=0)
     progress_percent = Column(Integer, default=0)
     daily_minutes = Column(Integer, default=0)
@@ -619,12 +656,54 @@ class LearningResourceSegment(Base):
     status = Column(String, default="not_started", nullable=False, index=True)
     completed_at = Column(DateTime, nullable=True)
 
+    # 읽고 남긴 한 줄. 사람이 적은 그대로 둔다 — 앱이 고치거나 요약하지 않는다.
+    #
+    # 읽기만 하고 아무것도 안 남으면 나중에 "이 책에서 뭘 얻었나" 에 답할 수
+    # 없고, 경험 · 포트폴리오로 옮길 재료도 없다. 단계에는
+    # learning_step_outputs 가, 루틴에는 routine_logs.learned 가 그 자리인데
+    # 조각에만 없었다.
+    note = Column(Text, default="", server_default="", nullable=False)
+
+    # 이 조각이 덮는 학습 단계. "3주차는 핸즈온 4장" 을 적는 자리다.
+    #
+    # 전에는 연결이 자료 단위(단계 ↔ 책)뿐이라, 단계를 끝내도 그 장이
+    # 그대로 남아 같은 공부를 두 군데서 체크해야 했다.
+    #
+    # 조각 하나는 단계 하나에만 속한다 — 4장을 3주차와 5주차가 같이
+    # 덮는 일은 없다. 비어 있어도 정상이다(수업과 무관한 책).
+    learning_step_id = Column(
+        Integer, ForeignKey("learning_steps.id"), nullable=True, index=True
+    )
+
     resource = relationship("LearningResource", back_populates="segments")
+    learning_step = relationship("LearningStep", back_populates="segments")
 
 
 # --------------------------------
 # Learning paths
 # --------------------------------
+
+class PreferredCompany(Base):
+    """가고 싶은 회사. 매칭 점수에 얹는다.
+
+    회사 이름만으로는 "왜 가고 싶은지" 가 남지 않아서 note 를 같이 둔다.
+    rank 는 1(가장 가고 싶음) ~ 3. 점수에 얹는 크기가 달라진다.
+
+    기업 규모(대기업 · 중견 · 중소)는 여기 없다 — 앱에 규모 데이터가 없다.
+    사람인 API 가 승인되면 그때 공고 쪽에 붙인다.
+    """
+
+    __tablename__ = "preferred_companies"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_preferred_company"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    note = Column(Text, default="", server_default="", nullable=False)
+    rank = Column(Integer, default=2, server_default="2", nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
 
 class LearningPath(Base):
     __tablename__ = "learning_paths"
@@ -636,6 +715,13 @@ class LearningPath(Base):
     progress_percent = Column(Integer, default=0, nullable=False)
     target_date = Column(Date, nullable=True)
     skill_id = Column(Integer, ForeignKey("skills.id"), nullable=True)
+
+    # 학교 수업인가, 따로 하는 공부인가.
+    #   course  학교 수업 — 요일이 정해져 있고 앞 주차를 알아야 다음 주차를 한다
+    #   self    따로 공부 — 스터디 · 책 · 심화. 마감 순으로 한다
+    # 오늘 할 일을 갈래로 묶는 데 쓴다. 둘은 밀렸을 때 대응이 다르다 —
+    # 수업은 순서를 지켜 따라잡아야 하고, 따로 공부는 마감 가까운 것부터 집으면 된다.
+    kind = Column(String, default="self", server_default="self", nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime,
@@ -689,6 +775,13 @@ class LearningStep(Base):
     due_date = Column(Date, nullable=True)
 
     learning_path = relationship("LearningPath", back_populates="steps")
+
+    # 이 단계가 덮는 자료의 장 · 회차. 단계를 끝내면 같이 끝난다.
+    segments = relationship(
+        "LearningResourceSegment",
+        back_populates="learning_step",
+    )
+
     resources = relationship(
         "LearningResource",
         secondary=learning_step_resources,
@@ -772,6 +865,26 @@ class LearningStepOutput(Base):
 # Source-independent opportunities
 # --------------------------------
 
+class CollectorRun(Base):
+    """수집원 하나가 마지막으로 어떻게 끝났는가.
+
+    수집기가 막히면(주소 변경 · 403 · 429) 그 출처만 0건이 되는데, 전체 수집은 "성공" 으로
+    끝난다. 그러면 공고가 없는 건지 수집기가 깨진 건지 알 수 없다 — 가장 나쁜 실패다.
+    그래서 출처마다 마지막 결과를 남기고 화면이 그걸 말한다.
+    """
+
+    __tablename__ = "collector_runs"
+    __table_args__ = (UniqueConstraint("source", name="uq_collector_run_source"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    source = Column(String, nullable=False)
+    status = Column(String, nullable=False)          # completed · failed
+    error = Column(Text, default="", server_default="", nullable=False)
+    fetched = Column(Integer, default=0, nullable=False)
+    created = Column(Integer, default=0, nullable=False)
+    ran_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
 class DismissedPosting(Base):
     """사람이 휴지통으로 지운 수집 공고의 번호.
 
@@ -836,9 +949,31 @@ class Opportunity(Base):
 
     # 직무가 맞지 않아 자동으로 뺀 이유 (services/job_fit.py). 비어 있으면 뺀 게 아니다.
     # 뺀 기회는 보관함으로 가고, 스킬 수요에 세지 않는다.
+    # 지원 자격이 안 되는 까닭. 사람이 적는다 ("석사 이상 필수", "경력 3년").
+    #
+    # filtered_reason 과 다르다 — 저건 **앱이** 직무가 다르다고 판단한 것이고,
+    # 이건 **사람이** 자격이 안 된다고 정한 것이다. 둘 다 수요에서 빠지지만
+    # 까닭이 다르므로 되돌리는 방법도 다르다.
+    #
+    # 비우면 다시 지원할 수 있는 공고가 된다. 지우지 않는 이유는, 까닭이
+    # 남아 있어야 "이 스킬 공고 4건 중 3건이 석사 요구" 를 말할 수 있어서다.
+    blocked_reason = Column(
+        String, default="", server_default="", nullable=False
+    )
+
     filtered_reason = Column(String, default="", server_default="", nullable=False)
+
+    # 이건 **앱이** 자동으로 치운 까닭이다. 위의 둘과 다르다 — 사람이 정한
+    # 것이 아니라서 틀릴 수 있고, 틀렸을 때 수현이 알아볼 수 있어야 한다.
+    # 까닭을 안 남기던 동안 잘못 묶인 공고 하나를 못 보고 지나쳤다(커밋 138).
+    tidied_reason = Column(String, default="", server_default="", nullable=False)
     # 사람이 "그래도 검토" 로 되살렸다. 다시 자동으로 빼지 않는다.
     keep_anyway = Column(Boolean, default=False, server_default="0", nullable=False)
+
+    # 즐겨찾기. 켜두면 화면 맨 위 배지로 알린다.
+    # 마감이 멀어 오늘 계획에 안 올라오는 공고를 눈에서 놓치지 않기 위한 칸이다 —
+    # 매칭 점수가 높은 것들이 정작 마감이 없어서 묻히는 일이 실제로 있었다.
+    favorite = Column(Boolean, default=False, server_default="0", nullable=False)
 
     # Mission 023: 매칭 점수. 계산은 services/opportunity.py 가 한다.
     match_score = Column(Float, nullable=True)
@@ -881,6 +1016,16 @@ class DailyPlanTask(Base):
     # planned · done · skipped
     status = Column(String, default="planned", nullable=False, index=True)
     completed_at = Column(DateTime, nullable=True)
+
+    # 실제로 걸린 시간. 비면 안 적은 것이다 (0 분과 다르다).
+    #
+    # 앱은 "180분" 이라고 적어 두고 실제로 얼마나 걸렸는지 한 번도 묻지
+    # 않았다. 오늘 몫을 자르는 것도, 구간 속도를 내는 것도 전부 그 틀린
+    # 추정 위에 서 있었다. 쌓이면 "계획보다 1.4배 걸린다" 를 알 수 있다.
+    actual_minutes = Column(Integer, nullable=True)
+
+    # 넘긴 까닭. 안 한 것도 기록이다 — 같은 까닭이 반복되면 계획이 틀린 것이다.
+    skip_reason = Column(String, default="", server_default="", nullable=False)
 
     # 이월된 경우 원래 날짜
     carried_from = Column(Date, nullable=True)
@@ -1014,7 +1159,11 @@ class MonthlyReflection(Base):
 
 
 class RoutineLog(Base):
-    """루틴을 한 날. 하루에 한 줄 — 몇 개 했는지까지."""
+    """루틴을 한 날. 하루에 한 줄 — 몇 개 했는지와 **몰랐던 것**까지.
+
+    개수만 세면 "3문제 풀었다" 는 남지만 "왜 못 풀었는지" 는 안 남는다.
+    한 달 뒤 코테를 앞두고 다시 볼 것은 푼 개수가 아니라 그때 막힌 지점이다.
+    """
 
     __tablename__ = "routine_logs"
     __table_args__ = (
@@ -1028,6 +1177,12 @@ class RoutineLog(Base):
     log_date = Column(Date, nullable=False, index=True)
     count = Column(Integer, nullable=True)
     minutes = Column(Integer, default=0, nullable=False)
+
+    # 그날 한 것 중 몰랐던 것. 사람이 적은 그대로 둔다 — 앱이 고치거나 요약하지 않는다.
+    # Routine.note 와 다르다: 저건 루틴을 **시작하는 법**(늘 같은 것),
+    # 이건 그날 하루에만 해당하는 기록이다.
+    learned = Column(Text, default="", server_default="", nullable=False)
+
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     routine = relationship("Routine", back_populates="logs")
@@ -1082,6 +1237,18 @@ class Experience(Base):
     technologies = Column(Text, default="")
     metrics = Column(Text, default="")
     tags = Column(Text, default="")
+
+    # 지원서를 쓸 때마다 다시 떠올리게 되는 것들. 적어 두지 않으면 문항마다 몇 시간이 든다.
+    # 앱은 여기 적힌 것만 쓴다 — 없는 이야기를 채우지 않는다.
+    stakeholders = Column(Text, default="", server_default="", nullable=False)   # 누구와 · 누구를 위해
+    contribution = Column(Text, default="", server_default="", nullable=False)   # 내 몫이 어디까지였나
+    obstacles = Column(Text, default="", server_default="", nullable=False)      # 막힌 것과 푼 방법
+    learned = Column(Text, default="", server_default="", nullable=False)        # 배운 것 · 다시 하면
+    reusable = Column(Text, default="", server_default="", nullable=False)       # 재현 가능성 · 남은 자산
+    target_roles = Column(Text, default="", server_default="", nullable=False)   # 관련 직무 · 산업
+    # 이 경험이 답이 되는 지원서 문항. 이게 있어야 "JD 던지면 초안" 이 성립한다.
+    questions = Column(Text, default="", server_default="", nullable=False)
+
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
     github_url = Column(String, default="", nullable=False)

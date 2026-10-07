@@ -61,6 +61,8 @@ def serialize_segment(segment) -> dict:
         "estimated_minutes": segment.estimated_minutes,
         "status": segment.status,
         "completed_at": segment.completed_at,
+        # 읽고 남긴 한 줄. 빈 문자열이면 아직 안 적은 것이다.
+        "note": segment.note or "",
     }
 
 
@@ -673,13 +675,20 @@ def select_for_today(db, available_minutes: int) -> dict:
 # 진행
 # --------------------------------
 
-def complete_segment(db, segment):
+def complete_segment(db, segment, note: str | None = None):
     """조각 하나를 끝냈다고 표시한다.
 
     자료의 모든 조각이 끝나면 자료 자체도 완료로 올린다.
+
+    `note` 는 읽고 남긴 한 줄이다. 안 보내면 이미 적은 것을 그대로 둔다 —
+    None 과 빈 문자열은 다르다. 빈 문자열은 "적은 것을 지운다" 이고
+    None 은 "건드리지 않는다" 다.
     """
     segment.status = COMPLETED
     segment.completed_at = datetime.now()
+
+    if note is not None:
+        segment.note = note.strip()
 
     resource = segment.resource
 

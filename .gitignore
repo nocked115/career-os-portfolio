@@ -2,6 +2,8 @@
 backend/.venv/
 backend/.env
 backend/__pycache__/
+# 경로 한정이면 다른 데(scripts/ 등)에서 또 딸려 온다 — 어디서든 막는다.
+__pycache__/
 backend/**/*.pyc
 # DB 는 파일 이름이 아니라 확장자로 막는다. 이름을 하나씩 적어뒀더니
 # career_os.db.bak-155629 가 그대로 추적 대상이 됐다.

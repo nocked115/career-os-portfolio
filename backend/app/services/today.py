@@ -14,11 +14,14 @@ Todo 앱과의 차이는 사용자가 할 일을 넣는 게 아니라
 
 from datetime import date, datetime, timedelta
 
+from sqlalchemy.orm import object_session
+
 from .. import models
 from . import checklist as checklist_service
 from . import learning as learning_service
 from . import routine as routine_service
 from . import priority as priority_service
+from . import market as market_service
 
 
 # --------------------------------
@@ -58,6 +61,63 @@ DEADLINE_HORIZON_DAYS = 14
 # 마감이 이보다 가까우면 다른 것보다 먼저 놓는다.
 DEADLINE_URGENT_DAYS = 3
 
+# 기한 없이 빼둔 줄. planned / done / skipped 와 나란한 네 번째 상태다.
+# 이월도 안 되고 계획을 다시 짜도 안 지워진다 — 둘 다 `planned` 만 보기 때문이다.
+PARKED = "parked"
+
+# 공고 · 지원은 "시간을 쓰는 일" 이 아니라 "정할 일" 이다.
+#
+# 15분짜리 "지원할지 정하기" 가 예산과 max_tasks 자리를 먹으면, 공고가 두세 건 들어온
+# 날은 공부가 통째로 밀린다 (실제로 났다 — 세 자리 중 둘을 공고가 차지했다).
+# 그래서 예산에서 빼고 자리도 세지 않는다. 목록에는 그대로 둔다 — 마감은 놓치면 끝이라
+# 보이기는 해야 한다.
+BUDGET_EXEMPT_TYPES = ("application", "opportunity")
+
+# 아직 언제 할지 모르는 기획안. 프로젝트 목록에는 있지만 오늘 계획에는 안 올라온다.
+PROJECT_IDEA = "idea"
+
+# 오늘 할 일을 묶는 갈래. 원시값(task_type)만으로는 "학교 수업" 과 "따로 공부" 를
+# 못 가른다 — 둘 다 learning_step 이다. 학습 경로의 kind 를 같이 봐야 갈라진다.
+#
+#   course   학교 일과 — 요일이 정해져 있고 앞 주차를 알아야 다음이 된다
+#   study    따로 공부 — 스터디 · 책 · 심화. 마감 가까운 것부터
+#   project  프로젝트
+#   deciding 공고 · 지원 — 시간을 쓰는 일이 아니라 정할 일 (예산 밖)
+#   other    그 밖
+LANE_COURSE = "course"
+LANE_STUDY = "study"
+LANE_PROJECT = "project"
+LANE_DECIDING = "deciding"
+LANE_OTHER = "other"
+
+LANE_LABELS = {
+    LANE_COURSE: "학교 일과",
+    LANE_STUDY: "따로 공부",
+    LANE_PROJECT: "프로젝트",
+    LANE_DECIDING: "공고 · 지원",
+    LANE_OTHER: "그 밖",
+}
+
+
+def lane_of_task(task) -> str:
+    """이 줄이 어느 갈래인가."""
+    if task.task_type in BUDGET_EXEMPT_TYPES:
+        return LANE_DECIDING
+
+    if task.task_type == "project":
+        return LANE_PROJECT
+
+    step = getattr(task, "learning_step", None)
+    path = getattr(step, "learning_path", None) if step is not None else None
+
+    if path is not None:
+        return LANE_COURSE if path.kind == "course" else LANE_STUDY
+
+    if task.task_type in ("learning_step", "resource"):
+        return LANE_STUDY
+
+    return LANE_OTHER
+
 
 def get_intensity(name: str | None) -> dict:
     return INTENSITY.get(name or DEFAULT_INTENSITY, INTENSITY[DEFAULT_INTENSITY])
@@ -94,18 +154,20 @@ def collect_deadlines(db, today: date | None = None) -> list[dict]:
     # "지원할지 정하기" 를 말할 이유도 없다.
     covered = set()
 
-    applications = (
-        db.query(models.Application)
-        .filter(models.Application.deadline.isnot(None))
-        .all()
-    )
-
-    for application in applications:
-        # 철회·지원 완료한 지원서도 그 공고를 "이미 정한 것" 으로 덮는다.
-        # 여기서 먼저 빠지면 같은 공고가 기회 마감으로 다시 뜬다.
+    # **마감일 유무와 상관없이** 지원서가 있는 공고는 전부 덮는다.
+    #
+    # 전에는 `deadline IS NOT NULL` 인 지원서만 봤다. 지원서에 마감일을
+    # 안 적으면 그 공고가 "아직 지원서를 만들지 않았습니다" 로 매일 되살아난다.
+    # 실제로 났다 — SK인텔릭스에 지원한 날 오후에도 오늘 계획에 "지원할지
+    # 정하기" 가 그대로 있었다. 마감일은 **후보를 고를 때** 필요한 것이지,
+    # "이미 정했는가" 를 판단할 때 필요한 것이 아니다.
+    for application in db.query(models.Application).all():
         if application.opportunity_id is not None:
             covered.add(application.opportunity_id)
 
+    for application in db.query(models.Application).filter(
+        models.Application.deadline.isnot(None)
+    ):
         if application.status in ("applied", "rejected", "accepted", "withdrawn"):
             continue
 
@@ -299,6 +361,10 @@ def _carry_over_candidates(db, today: date) -> list[dict]:
         if _carried_days(task, today) > CARRY_OVER_LIMIT_DAYS:
             continue
 
+        # 마감이 지난 공고 · 이미 낸 지원 · 끝낸 단계는 다시 안 올린다.
+        if _settled_reason(task, today) is not None:
+            continue
+
         candidates.append({
             "task_type": task.task_type,
             "title": task.title,
@@ -309,10 +375,149 @@ def _carry_over_candidates(db, today: date) -> list[dict]:
             "project_id": task.project_id,
             "learning_resource_id": task.learning_resource_id,
             "application_id": task.application_id,
+            # 이게 빠져 있었다. 그러면 _task_key 가 제목으로 떨어져서, 같은 공고의
+            # 마감 후보(opportunity_id 있음)와 이월 후보(없음)가 다른 일로 보였다 —
+            # 화면에 "기회" 와 "기회 · 이월" 두 줄이 나왔다.
+            "opportunity_id": task.opportunity_id,
             "urgent": False,
         })
 
     return candidates
+
+
+# 저절로 치우는 이유. 사람이 판단할 게 없는 것들만 넣는다 —
+# "마감이 지났다" 는 사실이고, "이거 안 할 건가요?" 는 질문이다.
+SETTLED_DEADLINE = "마감이 지났습니다"
+SETTLED_DROPPED = "안 가기로 정한 공고입니다"
+SETTLED_APPLIED = "이미 지원서를 만들었습니다"
+SETTLED_DONE = "이미 끝낸 것입니다"
+SETTLED_GONE = "가리키던 것이 지워졌습니다"
+
+
+def _settled_reason(task, today: date) -> str | None:
+    """이 할 일은 더 물어볼 게 없는가. 없으면 그 이유, 있으면 None.
+
+    **사실만 본다.** 마감이 지난 공고에 "지원할지 정하기" 를 물어볼 수는
+    없다. 이미 지원서를 만들었으면 정하기는 끝났다. 끝낸 단계가 다시
+    올라올 이유도 없다.
+
+    이게 없어서 "이건 안 할 건가요?" 칸이 열한 줄이 됐다. 그중 여럿은
+    답이 이미 정해진 것이었고, 진짜 물어볼 것들이 거기 묻혔다.
+    """
+    if task.opportunity_id is not None:
+        opportunity = task.opportunity
+
+        if opportunity is None:
+            return SETTLED_GONE
+
+        if opportunity.applications:
+            return SETTLED_APPLIED
+
+        if opportunity.status in market_service.DEMAND_OFF_STATUS:
+            return SETTLED_DROPPED
+
+        deadline = opportunity.deadline
+        if isinstance(deadline, datetime):
+            deadline = deadline.date()
+        if deadline is not None and deadline < today:
+            return SETTLED_DEADLINE
+
+    if task.application_id is not None and task.application is None:
+        return SETTLED_GONE
+
+    if task.learning_step_id is not None:
+        step = task.learning_step
+        if step is None:
+            return SETTLED_GONE
+        if step.status == "completed":
+            return SETTLED_DONE
+
+    if task.project_id is not None:
+        project = task.project
+        if project is None:
+            return SETTLED_GONE
+        if project.status == "completed":
+            return SETTLED_DONE
+
+    if task.learning_resource_id is not None and task.learning_resource is None:
+        return SETTLED_GONE
+
+    return None
+
+
+def settle_for_opportunity(db, opportunity_id: int, today: date | None = None) -> list[dict]:
+    """이 공고로 지원서를 만들었다 — 오늘 계획의 "지원할지 정하기" 를 끝낸다.
+
+    **그 자리에서 해야 한다.** 다시 짤 때까지 기다리면 이미 지원한 공고가
+    오늘 할 일로 남아 있다. 실제로 수현이 SK인텔릭스에 지원한 당일 오후에도
+    "아직 지원서를 만들지 않았습니다" 가 그대로 떠 있었다.
+
+    넘긴 것이 아니라 **끝낸 것**으로 표시한다 — 지원할지 정하는 일은
+    실제로 끝났기 때문이다.
+    """
+    today = today or date.today()
+
+    rows = (
+        db.query(models.DailyPlanTask)
+        .filter(
+            models.DailyPlanTask.opportunity_id == opportunity_id,
+            models.DailyPlanTask.status.in_(("planned", PARKED)),
+        )
+        .all()
+    )
+
+    settled = []
+
+    for task in rows:
+        task.status = "done"
+        task.completed_at = datetime.now()
+        settled.append({"task_id": task.id, "title": task.title})
+
+    # 즐겨찾기도 내린다. 즐겨찾기는 "잊지 않게 여기 둬" 라는 뜻인데,
+    # 지원서를 낸 뒤에는 잊을 일이 없다 — 지원서 목록에 있다.
+    opportunity = db.get(models.Opportunity, opportunity_id)
+
+    if opportunity is not None and opportunity.favorite:
+        opportunity.favorite = False
+        settled.append({"task_id": None, "title": f"{opportunity.title} 즐겨찾기"})
+
+    if settled:
+        db.commit()
+
+    return settled
+
+
+def clear_settled_tasks(db, today: date | None = None) -> list[dict]:
+    """답이 이미 정해진 이월을 실제로 치운다. 치운 것을 돌려준다.
+
+    **계획을 다시 짤 때만 부른다.** 읽기(build_plan)는 데이터를 바꾸지
+    않는다는 규칙을 지킨다 — 대신 읽는 쪽은 `_settled_reason` 으로
+    걸러서 보여주기만 한다.
+
+    지우지 않고 `skipped` 로 둔다 — 자국이 남아야 "되돌리기" 가 되고,
+    무엇이 왜 사라졌는지도 말할 수 있다. 조용히 없애지 않는다.
+    """
+    today = today or date.today()
+
+    cleared = []
+
+    for task in _leftover_tasks(db, today):
+        reason = _settled_reason(task, today)
+
+        if reason is None:
+            continue
+
+        task.status = "skipped"
+        cleared.append({
+            "task_id": task.id,
+            "title": task.title,
+            "reason": reason,
+        })
+
+    if cleared:
+        db.commit()
+
+    return cleared
 
 
 def stale_carry_overs(db, today: date | None = None) -> list[dict]:
@@ -334,6 +539,10 @@ def stale_carry_overs(db, today: date | None = None) -> list[dict]:
         }
         for task in _leftover_tasks(db, today)
         if _carried_days(task, today) > CARRY_OVER_LIMIT_DAYS
+        # 답이 이미 정해진 것은 묻지 않는다. 마감이 지난 공고에
+        # "지원할지 정하기" 를 물어볼 수는 없다. 이것들이 섞여서
+        # 칸이 열한 줄이 됐고, 진짜 물어볼 것들이 거기 묻혔다.
+        and _settled_reason(task, today) is None
     ]
 
 
@@ -643,7 +852,19 @@ def _project_candidates(db, entries, today: date) -> list[dict]:
     running = []
 
     for project in db.query(models.Project).all():
-        if not project.career_related or project.status == "completed":
+        # 학습용(수업 과제)도 오늘 할 일이다. 취미만 뺀다.
+        if project.purpose == "hobby" or not project.career_related:
+            continue
+
+        if project.status == "completed":
+            continue
+
+        # 기획안(idea)은 계획에 올리지 않는다.
+        #
+        # "언제 할지 모르겠지만 하고 싶다" 를 적어두는 칸이다. 그걸 매일 할 일로 띄우면
+        # 적어두는 것 자체가 부담이 되어 아무것도 안 적게 된다. 시작할 때 사람이
+        # status 를 planned/in_progress 로 바꾼다.
+        if project.status == PROJECT_IDEA:
             continue
 
         if (project.progress_percent or 0) >= 100:
@@ -874,6 +1095,14 @@ def generate_plan(
     )
     db.flush()
 
+    # 이미 저장된 중복을 접는다. 규칙을 고치기 전에 들어온 줄이 그대로 남아,
+    # 같은 공고가 "넘김 · 넘김 · 할 일" 세 줄로 보였다.
+    _fold_duplicates(db, today)
+
+    # 답이 이미 정해진 이월을 치운다 (마감 지남 · 이미 지원함 · 끝낸 단계).
+    # 읽기는 걸러서 보여주기만 하고, 실제로 표시하는 건 여기서 한다.
+    cleared = clear_settled_tasks(db, today)
+
     done_minutes = sum(
         task.minutes
         for task in _stored_tasks(db, today)
@@ -883,32 +1112,60 @@ def generate_plan(
     stored = _stored_tasks(db, today)
     budget = max(0, available_minutes - done_minutes)
 
-    # 루틴은 시간을 먼저 떼어 둔다. 강도의 칸 수(max_tasks)는 쓰지 않는다 —
-    # 코테 30분이 하루 세 칸 중 한 칸을 차지하면 학습이 밀려난다.
-    # 오늘 이미 끝냈거나 넘긴 루틴은 다시 넣지 않는다.
+    # 루틴은 **계획에 넣지 않는다.** 대신 시간만 먼저 뗀다.
+    #
+    # 매일 하는 일은 "오늘 무엇을 할지" 의 판단 대상이 아니다. 코테는 평일마다 하는 것이지
+    # 오늘 고른 것이 아니다. 계획 목록에 섞이면 매일 같은 줄이 자리를 차지하고,
+    # 정작 오늘 정해야 할 일이 접힌 자리로 밀린다. 화면 맨 위 고정 칸에 따로 둔다.
+    #
+    # 시간은 그대로 뗀다 — 코테 30분은 실제로 30분이다. 떼지 않으면 계획이 하루를 넘긴다.
     handled = {task.routine_id for task in stored if task.routine_id is not None}
-    routines = []
+    routine_steps = set()
 
     for item in routine_service.plan_candidates(db, today, exclude=handled):
         if item["minutes"] > budget:
             continue
-        routines.append(item)
         budget -= item["minutes"]
+        if item.get("learning_step_id"):
+            routine_steps.add(item["learning_step_id"])
 
-    # 루틴이 이미 여는 학습 단계는 후보에서 뺀다. 같은 일을 두 번 올리지 않는다.
-    routine_steps = {item["learning_step_id"] for item in routines if item["learning_step_id"]}
+    # 루틴이 여는 학습 단계는 후보에서 뺀다. 같은 일을 두 번 올리지 않는다.
+    # 오늘 이미 판에 있는 것(끝낸 것 · 넘긴 것)도 뺀다 — 넘길 때마다 같은 공고가
+    # 새로 들어와 "지원할지 정하기" 가 세 줄이 됐다.
+    # 미뤄둔 줄과 같은 대상도 뺀다. 빼둔 것이 다음 날 새 줄로 되살아나면
+    # "기한 없이 빼둔다" 가 하루짜리 미루기가 된다.
+    parked_keys = {_task_key(task) for task in parked_tasks(db)}
+
     candidates = [
         item
         for item in build_candidates(db, today)
         if item.get("learning_step_id") not in routine_steps
+        and _task_key(item) not in {_task_key(task) for task in stored}
+        and _task_key(item) not in parked_keys
     ]
 
-    chosen, remaining = allocate(candidates, budget, intensity)
+    # 공고 · 지원은 예산과 자리를 먹지 않는다. 따로 떼어 뒤에 붙인다.
+    #
+    # allocate 를 거치지 않으므로 max_tasks 가 잘라주던 것이 없다. 같은 대상이
+    # 마감 후보와 이월 후보로 두 번 들어올 수 있어 여기서 한 번만 남긴다.
+    # (앞쪽이 마감 후보다 — build_candidates 가 마감을 먼저 넣는다.)
+    deciding, seen = [], set()
+    working = []
+    for item in candidates:
+        if item["task_type"] not in BUDGET_EXEMPT_TYPES:
+            working.append(item)
+            continue
+        key = _task_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        deciding.append(item)
 
-    # 급한 마감 → 루틴 → 나머지. 루틴은 매일 같은 자리에 있어야 찾기 쉽다.
+    chosen, remaining = allocate(working, budget, intensity)
+    chosen = chosen + deciding
+
     chosen = (
         [item for item in chosen if item.get("urgent")]
-        + routines
         + [item for item in chosen if not item.get("urgent")]
     )
 
@@ -937,7 +1194,83 @@ def generate_plan(
 
     db.commit()
 
-    return build_plan(db, today, available_minutes, intensity_name)
+    plan = build_plan(db, today, available_minutes, intensity_name)
+
+    # 저절로 치운 것. 조용히 없애지 않고 무엇을 왜 치웠는지 말해 준다.
+    plan["cleared"] = cleared
+
+    return plan
+
+
+# 한 대상에 한 줄만 남길 때의 우선순위. 기록이 있는 쪽을 남긴다.
+_KEEP_ORDER = {"done": 0, "planned": 1, "skipped": 2}
+
+
+def _fold_duplicates(db, today: date) -> int:
+    """같은 대상을 가리키는 오늘 줄이 여럿이면 하나만 남긴다.
+
+    남기는 것은 끝낸 것 > 할 일 > 넘긴 것 순. 끝낸 기록은 지우지 않는다.
+    """
+    seen = {}
+    removed = 0
+
+    for task in _stored_tasks(db, today):
+        key = _task_key(task)
+        kept = seen.get(key)
+
+        if kept is None:
+            seen[key] = task
+            continue
+
+        loser = max((kept, task), key=lambda row: (_KEEP_ORDER.get(row.status, 3), row.position))
+        winner = kept if loser is task else task
+
+        seen[key] = winner
+        db.delete(loser)
+        removed += 1
+
+    if removed:
+        db.flush()
+
+    return removed
+
+
+def _task_key(task):
+    """오늘 판에서 같은 일인지 가리는 열쇠.
+
+    dict(후보)와 DailyPlanTask 를 같은 방법으로 읽는다. 가리키는 대상이 있으면 그것으로,
+    없으면 제목으로 본다 — 제목만 있는 후보도 두 번 올라오면 안 된다.
+    """
+    def value(name):
+        return task.get(name) if isinstance(task, dict) else getattr(task, name, None)
+
+    for name in (
+        "opportunity_id", "application_id", "learning_step_id",
+        "project_id", "learning_resource_id", "routine_id",
+    ):
+        found = value(name)
+        if found is not None:
+            return (name, found)
+
+    return ("title", value("title"))
+
+
+def _visible_tasks(tasks: list) -> list:
+    """화면에 보일 줄. 같은 대상은 하나만 — 끝낸 것 > 할 일 > 넘긴 것 순."""
+    best = {}
+
+    for task in tasks:
+        key = _task_key(task)
+        kept = best.get(key)
+
+        if kept is None or (_KEEP_ORDER.get(task.status, 3), task.position) < (
+            _KEEP_ORDER.get(kept.status, 3), kept.position
+        ):
+            best[key] = task
+
+    chosen = set(id(task) for task in best.values())
+
+    return [task for task in tasks if id(task) in chosen]
 
 
 def _stored_tasks(db, today: date):
@@ -945,6 +1278,26 @@ def _stored_tasks(db, today: date):
         db.query(models.DailyPlanTask)
         .filter(models.DailyPlanTask.plan_date == today)
         .order_by(models.DailyPlanTask.position)
+        .all()
+    )
+
+
+def parked_tasks(db):
+    """기한 없이 빼둔 것 — "언젠가 할 일".
+
+    오늘 계획에서 밀어냈지만 버리지는 않은 줄이다. 날짜에 묶이지 않는다:
+    plan_date 와 무관하게 모으므로 다음 날에도 그대로 보인다.
+
+    이월(_leftover_tasks)과 다시 짜기(generate_plan)는 `planned` 만 보므로
+    여기 있는 줄은 저절로 빠진다 — 오늘 계획을 밀어내지 않는다.
+    """
+    return (
+        db.query(models.DailyPlanTask)
+        .filter(models.DailyPlanTask.status == PARKED)
+        .order_by(
+            models.DailyPlanTask.plan_date,
+            models.DailyPlanTask.position,
+        )
         .all()
     )
 
@@ -1038,13 +1391,142 @@ def serialize_task(task) -> dict:
             else None
         ),
         "area": AREA_LABELS.get(task.task_type, "할 일"),
+        # 화면이 갈래로 묶는다 — 무조건 하는 일(루틴)은 이미 따로 있고, 나머지를 넷으로 나눈다.
+        "lane": lane_of_task(task),
+        "lane_label": LANE_LABELS.get(lane_of_task(task), "그 밖"),
         "on_complete": preview_completion(task),
+        # 자료(책 · 강의)는 통째로 "시작" 할 수 없다. 오늘 읽을 데를 같이 준다.
+        "resource": (
+            _resource_summary(task.learning_resource)
+            if task.learning_resource is not None
+            else None
+        ),
         # 학습 단계는 하루에 안 끝난다. 오늘 실제로 할 줄을 같이 보인다.
         "checklist": (
-            checklist_service.summary(task.learning_step)
+            # 오늘 이 할 일에 준 시간만큼만 자른다 — 주차 하나가 9시간이면
+            # 그걸 통째로 "오늘 할 일" 이라고 내밀 수 없다.
+            #
+            # 자를 때 **보정 계수**를 쓴다. 지금까지 계획보다 1.4배 걸렸다면
+            # 30분에 다섯 항목이 아니라 세 항목이 맞다. 기록이 적으면
+            # 보정하지 않는다 (pace_factor 가 None 을 돌려준다).
+            checklist_service.summary(
+                task.learning_step, task.minutes,
+                factor=_pace_factor_value(object_session(task)),
+            )
             if task.learning_step is not None
             else None
         ),
+    }
+
+
+def _resource_summary(resource) -> dict:
+    """이 자료로 오늘 **어디를** 할지.
+
+    제목만 주면 "시작" 을 눌러도 열 데가 없어 내 자료 목록으로 떨어진다.
+    실제로 그랬다 — 책에서 시작을 눌렀는데 아무것도 안 나왔다. 책 한 권은
+    오늘 할 일이 될 수 없고, 1장 45분은 될 수 있다.
+
+    조각(segment)이 없으면 next_segment 는 None 이다. 그때는 화면이
+    "어디부터 읽을지 먼저 나누세요" 라고 말해야 한다 — 없는 범위를
+    지어내지 않는다.
+    """
+    segments = sorted(resource.segments, key=lambda item: (item.position, item.id))
+
+    upcoming = next(
+        (item for item in segments if item.status != "completed"), None
+    )
+
+    return {
+        "id": resource.id,
+        "title": resource.title,
+        "url": resource.url or "",
+        "resource_type": resource.resource_type,
+        "segment_total": len(segments),
+        "segment_done": sum(1 for item in segments if item.status == "completed"),
+        "next_segment": (
+            {
+                "id": upcoming.id,
+                "label": upcoming.label,
+                "minutes": upcoming.estimated_minutes,
+                "start_ref": upcoming.start_ref,
+                "end_ref": upcoming.end_ref,
+                # 이미 적어 둔 게 있으면 그걸 보여준다 — 덮어쓰지 않게.
+                "note": upcoming.note or "",
+            }
+            if upcoming is not None
+            else None
+        ),
+        # 바로 앞 조각에 남긴 한 줄. 이어 읽을 때 "지난번에 뭐였더라" 가
+        # 화면에 있어야 다시 열어보지 않는다.
+        "last_note": next(
+            (
+                {"label": item.label, "note": item.note}
+                for item in reversed(segments)
+                if item.status == "completed" and (item.note or "").strip()
+            ),
+            None,
+        ),
+    }
+
+
+# 보정에 쓸 최소 기록 수. 이보다 적으면 비율을 내지 않는다 —
+# 두세 번으로 "1.4배 걸린다" 고 말할 수 없다.
+PACE_MIN_SAMPLES = 5
+
+# 비율의 상·하한. 한 번 크게 어긋난 기록이 전체를 끌고 가지 않게 한다.
+PACE_FLOOR, PACE_CEIL = 0.5, 2.5
+
+
+def _pace_factor_value(db) -> float | None:
+    """보정 계수만.
+
+    serialize_task 는 db 를 안 받는다 — 부르는 데가 여럿이라 시그니처를
+    바꾸면 전부 고쳐야 한다. 대신 객체가 달린 세션을 쓴다. 세션이 없으면
+    (떼어낸 객체) 보정하지 않는다.
+    """
+    if db is None:
+        return None
+
+    found = pace_factor(db)
+    return found["factor"] if found else None
+
+
+def pace_factor(db, lane: str | None = None) -> dict | None:
+    """계획한 시간 대비 실제로 몇 배가 걸리는가.
+
+    수현: "시간을 넣으면 그 학습 시간에 맞춰서 해줄 수 있잖아."
+
+    앱이 "180분" 이라고 적어 둔 추정은 한 번도 검증된 적이 없다. 실제로
+    적은 시간이 쌓이면 그 추정을 보정할 수 있다 — 오늘 몫을 자르는 것도,
+    구간 속도도 전부 추정 위에 서 있기 때문이다.
+
+    **기록이 적으면 비율을 내지 않는다.** 두세 번으로 "1.4배" 라고 말하면
+    그 숫자가 다음 계획을 통째로 흔든다.
+    """
+    query = (
+        db.query(models.DailyPlanTask)
+        .filter(models.DailyPlanTask.actual_minutes.isnot(None))
+        .filter(models.DailyPlanTask.minutes > 0)
+    )
+
+    rows = [task for task in query.all() if lane is None or lane_of_task(task) == lane]
+
+    if len(rows) < PACE_MIN_SAMPLES:
+        return None
+
+    planned = sum(task.minutes for task in rows)
+    actual = sum(task.actual_minutes for task in rows)
+
+    if not planned:
+        return None
+
+    factor = max(PACE_FLOOR, min(PACE_CEIL, actual / planned))
+
+    return {
+        "samples": len(rows),
+        "planned_minutes": planned,
+        "actual_minutes": actual,
+        "factor": round(factor, 2),
     }
 
 
@@ -1092,6 +1574,55 @@ def plan_outdated(db, tasks) -> dict | None:
     }
 
 
+def today_routines(db, today: date) -> list[dict]:
+    """오늘 할 차례인 루틴. 계획 항목이 아니라 고정 칸에 보일 것.
+
+    코테는 평일마다 하는 것이지 오늘 고른 것이 아니다. 계획에 섞이면 매일 같은 줄이
+    자리를 차지하고, 정작 오늘 정해야 할 일이 접힌 자리로 밀린다.
+    """
+    rows = (
+        db.query(models.Routine)
+        .filter(models.Routine.active.is_(True))
+        .order_by(models.Routine.id)
+        .all()
+    )
+
+    pinned = []
+
+    for routine in rows:
+        if not routine_service.is_due(routine, today):
+            continue
+
+        log = next((row for row in routine.logs if row.log_date == today), None)
+        step = routine_service.next_step(routine.learning_path)
+
+        pinned.append({
+            "id": routine.id,
+            "title": routine.title,
+            "minutes": routine.minutes,
+            "target_count": routine.target_count,
+            "unit_label": routine.unit_label,
+            "target_text": routine_service.target_text(routine),
+            "link_url": routine.link_url,
+            "note": routine.note,
+            "learning_path": (
+                {"id": routine.learning_path.id, "title": routine.learning_path.title}
+                if routine.learning_path is not None
+                else None
+            ),
+            "next_step": {"id": step.id, "title": step.title} if step else None,
+            "done": log is not None,
+            "count": log.count if log else None,
+            # 그날 몰랐던 것. 개수를 적는 자리에서 같이 적는다 —
+            # 끝낸 직후가 가장 잘 떠오르고, 나중에 다시 열 이유가 줄어든다.
+            "learned": (log.learned or "") if log else "",
+            "week": routine_service.week_summary(routine, today),
+            "weekday_label": routine_service.weekday_label(routine),
+        })
+
+    return pinned
+
+
 def build_plan(
     db,
     today: date | None = None,
@@ -1101,7 +1632,15 @@ def build_plan(
     """저장된 오늘 계획을 읽어서 돌려준다."""
     today = today or date.today()
 
-    tasks = _stored_tasks(db, today)
+    # 같은 대상을 가리키는 줄이 여럿이면 화면에는 하나만 보인다.
+    # 지우는 것은 계획을 다시 세울 때 한다 — 읽기가 데이터를 바꾸지 않는다.
+    # 미뤄둔 줄은 오늘 목록에서 뺀다. 아래 "parked" 로 따로 나간다 —
+    # 오늘 할 일에 섞이면 기한 없이 빼둔 뜻이 없어진다.
+    tasks = [
+        task
+        for task in _visible_tasks(_stored_tasks(db, today))
+        if task.status != PARKED
+    ]
 
     # 저장된 계획이 있으면 그때 쓴 설정을 따른다.
     # 조회 파라미터를 그대로 쓰면 실제와 다른 "남은 시간" 이 나온다.
@@ -1113,8 +1652,30 @@ def build_plan(
 
     intensity = get_intensity(intensity_name)
 
-    planned_minutes = sum(t.minutes for t in tasks if t.status != "skipped")
-    done_minutes = sum(t.minutes for t in tasks if t.status == "done")
+    # 공고 · 지원은 시간을 쓰는 일로 세지 않는다. 세면 "남은 시간" 이 거짓이 된다.
+    task_minutes = sum(
+        t.minutes
+        for t in tasks
+        if t.status != "skipped" and t.task_type not in BUDGET_EXEMPT_TYPES
+    )
+
+    # 루틴은 계획 **목록** 에 없지만 예산은 실제로 먹는다 — generate_plan 이
+    # 후보를 고르기 전에 루틴 시간부터 뗀다. 그런데 요약은 목록만 세고 있었다.
+    # 그래서 "90분 중 50분" 이라고 말하면서 화면에는 코테 30분이 함께 떠 있었고,
+    # 남았다는 40분을 믿고 하나 더 넣으면 하루가 넘쳤다. 같은 시간을 센다.
+    #
+    # 이미 계획 줄로 들어와 있는 루틴은 빼고 센다. 두 번 세면 반대로 모자란다.
+    routines = today_routines(db, today)
+    task_routine_ids = {t.routine_id for t in tasks if t.routine_id is not None}
+    pinned = [r for r in routines if r["id"] not in task_routine_ids]
+
+    routine_minutes = sum(r["minutes"] or 0 for r in pinned)
+
+    planned_minutes = task_minutes + routine_minutes
+    done_minutes = (
+        sum(t.minutes for t in tasks if t.status == "done")
+        + sum(r["minutes"] or 0 for r in pinned if r["done"])
+    )
     done_count = sum(1 for t in tasks if t.status == "done")
 
     return {
@@ -1123,15 +1684,25 @@ def build_plan(
         "intensity": intensity_name,
         "intensity_label": intensity["label"],
         "planned_minutes": planned_minutes,
+        # 그중 루틴이 먹는 시간. 계획 목록에 없는 시간이 어디로 갔는지
+        # 화면에서 말할 수 있어야 숫자를 믿을 수 있다.
+        "routine_minutes": routine_minutes,
         "done_minutes": done_minutes,
         "remaining_minutes": max(0, available_minutes - planned_minutes),
         "total_tasks": len(tasks),
         "done_tasks": done_count,
         "carried_over": sum(1 for t in tasks if t.carried_from is not None),
         "deadlines": collect_deadlines(db, today),
+        # 매일 하는 일 — 계획에 섞지 않고 화면 맨 위 고정 칸에 둔다.
+        "routines": routines,
         "tasks": [serialize_task(t) for t in tasks],
+        # 기한 없이 빼둔 것. 날짜에 묶이지 않아 오늘 것과 함께 매일 보인다.
+        "parked": [serialize_task(t) for t in parked_tasks(db)],
         # 사흘 넘게 밀린 것. 계획에는 안 올라가고 여기서 물어본다.
         "stale": stale_carry_overs(db, today),
+        # 계획한 시간 대비 실제로 몇 배가 걸렸나. 기록이 적으면 None.
+        "pace_factor": pace_factor(db),
+
         # 계획을 세운 뒤 1위 스킬이 바뀌었거나 기회가 새로 들어왔으면 그 이유. 아니면 None.
         "outdated": plan_outdated(db, tasks),
     }
@@ -1168,6 +1739,81 @@ def release_plan_tasks(db, column, value) -> dict:
             removed += 1
 
     return {"removed": removed, "kept": kept}
+
+
+# 직접 넣을 수 있는 것. 프로젝트 · 학습 단계 · 자료, 그리고 아무것도 안 가리키는 한 줄.
+ADD_KINDS = ("project", "learning_step", "resource", "custom")
+
+
+def add_task(db, kind: str, target_id=None, title: str = "", minutes: int = 30) -> dict:
+    """오늘 계획에 사람이 직접 한 줄을 넣는다.
+
+    앱이 고른 것만 할 수 있으면 "시간이 남아서 이걸 하고 싶다" 를 넣을 곳이 없다.
+    계획은 제안이지 명령이 아니다. 대신 **무엇을 가리키는지**는 남긴다 —
+    완료했을 때 진행률 · 증거가 같이 움직여야 하기 때문이다.
+    """
+    today = date.today()
+
+    if kind not in ADD_KINDS:
+        raise ValueError("넣을 수 있는 종류가 아니에요.")
+
+    task_type = kind
+    reason = "직접 넣었습니다."
+    fields = {}
+
+    if kind == "project":
+        project = db.get(models.Project, target_id)
+        if project is None:
+            raise LookupError("그 프로젝트를 찾지 못했어요.")
+        title = project.name
+        fields["project_id"] = project.id
+        reason = f"직접 넣었습니다. 진행률 {project.progress_percent or 0}%."
+
+    elif kind == "learning_step":
+        step = db.get(models.LearningStep, target_id)
+        if step is None:
+            raise LookupError("그 학습 단계를 찾지 못했어요.")
+        path = step.learning_path
+        title = f"{path.title} — {step.title}" if path else step.title
+        fields["learning_step_id"] = step.id
+        task_type = "learning_step"
+        remaining = checklist_service.remaining(step)
+        reason = "직접 넣었습니다." + (f" 체크 {remaining}개 남음." if remaining else "")
+
+    elif kind == "resource":
+        resource = db.get(models.LearningResource, target_id)
+        if resource is None:
+            raise LookupError("그 자료를 찾지 못했어요.")
+        title = resource.title
+        fields["learning_resource_id"] = resource.id
+        task_type = "resource"
+
+    else:
+        title = (title or "").strip()
+        if not title:
+            raise ValueError("무엇을 할지 적어 주세요.")
+        task_type = "custom"
+
+    stored = _stored_tasks(db, today)
+
+    # 이미 오늘 판에 있는 것은 두 번 넣지 않는다.
+    candidate = {"title": title, **fields}
+    if _task_key(candidate) in {_task_key(task) for task in stored}:
+        return {"added": False, "reason": "이미 오늘 계획에 있어요.", "plan": build_plan(db, today)}
+
+    db.add(models.DailyPlanTask(
+        plan_date=today,
+        position=len(stored),
+        task_type=task_type,
+        title=title[:200],
+        minutes=minutes,
+        reason=reason,
+        status="planned",
+        **fields,
+    ))
+    db.commit()
+
+    return {"added": True, "reason": reason, "plan": build_plan(db, today)}
 
 
 def reopen_task(db, task) -> dict:
@@ -1213,7 +1859,7 @@ def reopen_task(db, task) -> dict:
     return {"task": serialize_task(task), "effects": effects}
 
 
-def complete_task(db, task, count: int | None = None):
+def complete_task(db, task, count: int | None = None, actual_minutes: int | None = None):
     """완료 처리. 실제 대상까지 함께 갱신한다.
 
     체크만 하고 원래 데이터가 그대로면 진행도가 거짓이 된다.
@@ -1225,7 +1871,20 @@ def complete_task(db, task, count: int | None = None):
     task.status = "done"
     task.completed_at = datetime.now()
 
+    # 실제로 걸린 시간. 안 적어도 끝낼 수 있다 — 적어야만 끝낼 수 있게
+    # 하면 적기 싫어서 안 끝내게 되고, 그러면 기록이 더 나빠진다.
+    if actual_minutes is not None:
+        task.actual_minutes = actual_minutes
+
     effects = []
+
+    if actual_minutes is not None and task.minutes:
+        gap = actual_minutes - task.minutes
+        if abs(gap) >= 10:
+            effects.append(
+                f"계획 {task.minutes}분 → 실제 {actual_minutes}분 "
+                f"({'+' if gap > 0 else ''}{gap}분)"
+            )
 
     if task.routine is not None:
         log = routine_service.record(db, task.routine, task.plan_date, count)

@@ -1108,6 +1108,53 @@ input {
   border-color: #c9cbd2;
 }
 
+/* 줄 전체가 버튼이던 것을 쪼갰다 — 여는 자리와 손보는 자리.
+   버튼 안에 버튼을 넣을 수 없어서 순서도 못 바꾸고 고치지도 못했다. */
+.step-open {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 auto;
+  min-width: 0;
+
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+
+  cursor: pointer;
+}
+
+.step-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+/* 고치는 칸. 줄 모양을 그대로 쓰되 안쪽만 입력으로 바뀐다. */
+.step-item-edit {
+  flex-wrap: wrap;
+  gap: 8px;
+  cursor: default;
+}
+
+.step-edit-title {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.step-edit-minutes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
 .step-position {
   font-size: 12px;
   font-weight: 800;
@@ -1971,9 +2018,20 @@ input {
 
 /* 항목 */
 
+/* 안쪽 줄들(제목 · 설명 · 체크 칩 · 버튼)이 각자 margin 이 없어서 서로
+   붙어 있었다. 칩 줄 바로 밑에 버튼이 닿아 겹쳐 보였다. 줄 간격은
+   항목이 정한다 — 안쪽 것들에 margin 을 흩어 두면 또 어긋난다. */
 .prove-item {
+  display: grid;
+  gap: 10px;
+
   padding: 20px 0;
   border-top: 1px solid var(--line-soft);
+}
+
+/* 버튼 줄은 칩에서 한 칸 더 띄운다. 누르는 것과 읽는 것은 다른 줄이다. */
+.prove-item > .ui-row {
+  margin-top: 2px;
 }
 
 .prove-item:first-of-type {
@@ -3466,9 +3524,21 @@ input {
   min-width: 0;
 }
 
+/* 고른 것의 상세는 **화면에 붙여 둔다.**
+   목록을 내리면 상세가 같이 올라가버려서, 공고 하나 볼 때마다 올라갔다
+   내려왔다 해야 했다. 목록과 상세를 나란히 두는 뜻이 없어진다. */
 .split-rail {
   display: grid;
   gap: 16px;
+  align-content: start;
+
+  position: sticky;
+  top: 16px;
+
+  /* 상세가 화면보다 길면 레일 안에서만 스크롤한다. */
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 
   min-width: 0;
 }
@@ -3587,6 +3657,14 @@ input {
 @media (max-width: 1100px) {
   .split-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* 한 칸으로 접히면 상세가 목록 아래로 내려간다. 거기서 붙이면
+     목록을 가린다. */
+  .split-rail {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 }
 
@@ -4450,7 +4528,99 @@ body:has(.demo-banner) .universe {
    그렇다고 할 일처럼 보이면 안 된다 — 질문이지 지시가 아니다.
 -------------------------------- */
 
-.stale-box {
+/* 즐겨찾기 공고 — 계획 밖에 있는 것을 눈에 두는 칸. */
+.td-favorites {
+  display: grid;
+  gap: 8px;
+
+  margin: 0 0 12px;
+  padding: 12px 16px;
+
+  border-left: 3px solid var(--accent, var(--line));
+}
+
+.td-fav-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  margin: 0;
+
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.td-fav-why,
+.td-lane-why {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-soft, #6b7280);
+}
+
+.td-fav-rows {
+  display: grid;
+  gap: 4px;
+}
+
+.td-fav-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  color: inherit;
+  text-decoration: none;
+}
+
+.td-fav-row:hover .td-fav-title {
+  text-decoration: underline;
+}
+
+.td-fav-title {
+  font-size: 13px;
+}
+
+.td-fav-meta,
+.td-fav-more {
+  margin: 0;
+
+  font-size: 11.5px;
+  color: var(--ink-soft, #6b7280);
+}
+
+/* 오늘 할 일의 갈래 — 학교 일과 · 따로 공부 · 프로젝트 · 공고. */
+.td-lane + .td-lane {
+  margin-top: 10px;
+}
+
+.td-lane-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  margin: 0 0 6px;
+
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft, #6b7280);
+}
+
+/* 공고는 시간에 안 들어가니 조금 눌러서 보인다. */
+.td-deciding {
+  opacity: 0.92;
+}
+
+/* 기한 없이 빼둔 것. 점선 테두리는 stale 과 같게 두되(둘 다 "오늘 계획 밖"),
+   실선 왼쪽 선으로 구분한다 — stale 은 물어보는 칸, 이쪽은 일하는 칸이다. */
+.parked-box {
+  border-left: 3px solid var(--line);
+}
+
+.stale-box,
+.parked-box {
   display: grid;
   gap: 8px;
 
@@ -4482,25 +4652,99 @@ body:has(.demo-banner) .universe {
   color: var(--ink-soft);
 }
 
+/* 칸을 고정한다. flex-wrap 으로 두니 제목 길이에 따라 버튼이 제각각
+   밀려나 줄마다 다른 자리에 섰다.
+
+   일수는 제목 **바로 뒤**에 붙인다. 오른쪽 끝에 두니 긴 제목과 숫자
+   사이가 텅 비어, 눈이 매 줄 그 빈 곳을 건너야 했다. */
 .stale-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 4px;
+
+  padding: 5px 0;
+}
+
+.stale-row + .stale-row {
+  border-top: 1px solid var(--line-soft, #eceef1);
 }
 
 .stale-title {
-  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 
   font-size: 13px;
   color: var(--ink);
 }
 
+/* 말줄임은 **제목 자체**에 건다. flex 통에 걸면 안 먹는다 —
+   줄여야 할 건 글자인데 통만 잘려서, 긴 제목이 "8일째" 를 밀어냈다. */
+.stale-name {
+  min-width: 0;
+
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .stale-days {
+  flex: 0 0 auto;
+
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--evidence);
+}
+
+/* 같은 버튼이 열한 번 반복되면 그게 곧 벽이다. 테두리를 지우고
+   글자만 남긴다 — 누를 수 있다는 건 자리와 색으로 충분히 보인다. */
+.stale-box .ui-btn,
+.parked-box .ui-btn {
+  padding: 2px 8px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 12px;
+}
+
+.stale-box .ui-btn:hover:not(:disabled),
+.parked-box .ui-btn:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--card, #fff);
+}
+
+/* 나머지 보기. 줄처럼 보이면 안 되니 왼쪽에 붙여 작게. */
+.stale-more {
+  justify-self: start;
+
+  margin-top: 2px;
+  padding: 2px 0;
+
+  border: none;
+  background: none;
+
+  font-size: 12px;
+  color: var(--ink-soft, #6b7280);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  cursor: pointer;
+}
+
+.stale-more:hover {
+  color: var(--ink);
+}
+
+/* 좁은 화면에서는 제목 한 줄, 버튼 한 줄. */
+@media (max-width: 560px) {
+  .stale-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stale-row .ui-btn {
+    justify-self: start;
+  }
 }
 
 .stale-action {
@@ -4952,4 +5196,37 @@ body:has(.demo-banner) .universe {
   font-size: 12.5px;
   background: var(--card);
   color: var(--ink);
+}
+
+/* 덜 쓰는 메뉴는 접어 둔다 — 열 개를 한 줄에 세우면 글자가 쪼개져 기호 해석이 된다 */
+.sidebar-more {
+  display: grid;
+  gap: 2px;
+}
+
+.sidebar-more > summary {
+  padding: 8px 12px;
+
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #7c879b;
+
+  cursor: pointer;
+  list-style: none;
+}
+
+.sidebar-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar-more > summary::before {
+  content: "▸ ";
+}
+
+.sidebar-more[open] > summary::before {
+  content: "▾ ";
+}
+
+.sidebar-more > summary:hover {
+  color: #c8d2e4;
 }

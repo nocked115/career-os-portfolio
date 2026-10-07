@@ -325,10 +325,20 @@ function ResourceDrawer({ item, hot, working, onClose, onToPlan, onShelf }) {
           </div>
           <div>
             <dt>학습 경로</dt>
+            {/* 상태만 말하고 끝나면 막다른 길이다. 연결은 학습 세션에서
+                하는데, 여기서는 그걸 알 길이 없었다. */}
             <dd>
-              {item.linked_steps?.length
-                ? item.linked_steps.map((step) => `${step.path_title} › ${step.title}`).join(", ")
-                : "아직 어느 단계에도 연결되지 않았어요"}
+              {item.linked_steps?.length ? (
+                item.linked_steps.map((step) => `${step.path_title} › ${step.title}`).join(", ")
+              ) : (
+                <>
+                  아직 어느 단계에도 연결되지 않았어요 —{" "}
+                  <a className="td-link" href="#/learning">
+                    학습 경로
+                  </a>
+                  에서 단계를 열고 &lsquo;이 단계가 덮는 장&rsquo; 에서 고르면 됩니다.
+                </>
+              )}
             </dd>
           </div>
           <div>

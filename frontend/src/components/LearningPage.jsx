@@ -66,6 +66,107 @@ function doneCount(path) {
   return path.steps.filter((step) => step.status === "completed").length
 }
 
+/* 단계 한 줄.
+   전에는 줄 전체가 <button> 이라 안에 버튼을 넣을 수 없었다 — 그래서
+   순서도 못 바꾸고 고치지도 못했다. 여는 자리만 버튼으로 두고 나머지를
+   옆에 붙인다. */
+function StepRow({ step, first, last, working, onOpen, onMove, onEdit, onRemove }) {
+  const [editing, setEditing] = useState(false)
+  const [title, setTitle] = useState(step.title)
+  const [minutes, setMinutes] = useState(step.estimated_minutes || 0)
+
+  if (editing) {
+    return (
+      <div className="step-item step-item-edit">
+        <input
+          className="agent-input step-edit-title"
+          value={title}
+          maxLength={200}
+          aria-label="단계 이름"
+          onChange={(event) => setTitle(event.target.value)}
+        />
+        <label className="step-edit-minutes">
+          걸리는 시간
+          <input
+            className="plan-input"
+            type="number"
+            min="0"
+            max="600"
+            step="15"
+            value={minutes}
+            onChange={(event) => setMinutes(event.target.value)}
+          />
+          분
+        </label>
+        <Button
+          writes
+          disabled={working || !title.trim()}
+          onClick={() => {
+            onEdit({ title: title.trim(), estimated_minutes: Number(minutes) || 0 })
+            setEditing(false)
+          }}
+        >
+          저장
+        </Button>
+        <Button
+          variant="quiet"
+          disabled={working}
+          onClick={() => {
+            setTitle(step.title)
+            setMinutes(step.estimated_minutes || 0)
+            setEditing(false)
+          }}
+        >
+          그만두기
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`step-item step-${step.status}`}>
+      <button className="step-open" onClick={onOpen}>
+        <span className="step-position">
+          {step.status === "completed" ? "✓" : String(step.position + 1).padStart(2, "0")}
+        </span>
+        <span className="step-title">{step.title}</span>
+        <span className="step-status">{stepStatusLabel(step.status)}</span>
+        <span className="step-percent">
+          {step.estimated_minutes > 0 ? minutesText(step.estimated_minutes) : "시간 미정"}
+        </span>
+      </button>
+
+      <span className="step-actions">
+        <Button
+          variant="quiet"
+          writes
+          disabled={working || first}
+          aria-label={`${step.title} 위로`}
+          onClick={() => onMove(-1)}
+        >
+          ↑
+        </Button>
+        <Button
+          variant="quiet"
+          writes
+          disabled={working || last}
+          aria-label={`${step.title} 아래로`}
+          onClick={() => onMove(1)}
+        >
+          ↓
+        </Button>
+        <Button variant="quiet" disabled={working} onClick={() => setEditing(true)}>
+          고치기
+        </Button>
+        <Button variant="quiet" writes disabled={working} onClick={onRemove}>
+          지우기
+        </Button>
+      </span>
+    </div>
+  )
+}
+
+
 function LearningPage({ onOpenSession, initialTab = "paths" }) {
   const [data, setData] = useState(null)
   const [priority, setPriority] = useState([])
@@ -79,6 +180,11 @@ function LearningPage({ onOpenSession, initialTab = "paths" }) {
   const [session, setSession] = useState(null)
 
   const [showPathForm, setShowPathForm] = useState(false)
+  // 로드맵 한 장을 통째로 붙여넣는 칸.
+  const [showRoadmap, setShowRoadmap] = useState(false)
+  /* 전체에서 오늘 할 몫. 로드맵에 24시간이라고 적혀 있어도 오늘 몇 분인지
+     안 나오면 계획이 안 된다. 펼친 경로만 불러온다. */
+  const [pace, setPace] = useState(null)
   const [newPathTitle, setNewPathTitle] = useState("")
   const [newPathSkill, setNewPathSkill] = useState("")
   const [stepDrafts, setStepDrafts] = useState({})
@@ -277,6 +383,63 @@ function LearningPage({ onOpenSession, initialTab = "paths" }) {
       `${item.skill} 레벨을 ${level}(으)로 바꿨어요. 우선순위를 다시 계산했습니다.`,
       "레벨을 바꾸지 못했습니다."
     )
+
+  /* 단계 순서는 사람이 정한다. 앱이 마감이나 등록 순서로 줄 세우면
+     "앞 수업을 못 들어서 복습부터 해야 한다" 를 넣을 자리가 없다. */
+  const moveStep = (path, step, delta) => {
+    const ordered = [...path.steps].sort((a, b) => a.position - b.position)
+    const from = ordered.findIndex((row) => row.id === step.id)
+    const to = from + delta
+
+    if (to < 0 || to >= ordered.length) return
+
+    const next = [...ordered]
+    next.splice(to, 0, ...next.splice(from, 1))
+
+    return run(
+      () => api.learningSteps.reorder(path.id, next.map((row) => row.id)),
+      `'${step.title}' 을(를) ${to + 1}번으로 옮겼어요.`,
+      "순서를 바꾸지 못했습니다."
+    )
+  }
+
+  const editStep = (step, body) =>
+    run(() => api.learningSteps.update(step.id, body), "고쳤어요.", "고치지 못했습니다.")
+
+  const removeStep = (step) =>
+    run(
+      () => api.learningSteps.remove(step.id),
+      `'${step.title}' 단계를 지웠어요.`,
+      "지우지 못했습니다."
+    )
+
+  /* 전공(도구) ↔ 교양(배경지식). 점수는 안 건드린다 — 놓는 자리만 옮긴다. */
+  const setTrack = (item, track) =>
+    run(
+      () => api.skills.setTrack(item.skill_id, track),
+      track === "general"
+        ? `${item.skill} 을(를) 교양으로 옮겼어요. 읽고 아는 쪽으로 둡니다.`
+        : `${item.skill} 을(를) 전공으로 옮겼어요. 손에 익히는 쪽으로 둡니다.`,
+      "옮기지 못했습니다."
+    )
+
+  useEffect(() => {
+    if (activePathId == null) {
+      setPace(null)
+      return
+    }
+
+    let alive = true
+
+    api.learningPaths
+      .pace(activePathId)
+      .then((result) => alive && setPace({ pathId: activePathId, ...result }))
+      .catch(() => alive && setPace(null))
+
+    return () => {
+      alive = false
+    }
+  }, [activePathId, paths])
 
   if (loading) {
     return <LoadingState label="학습 경로를 불러오는 중…" />
@@ -478,31 +641,82 @@ function LearningPage({ onOpenSession, initialTab = "paths" }) {
                     />
                   )}
 
+                  {isOpen && pace?.pathId === path.id && pace.total_minutes > 0 && (
+                    <p className={
+                      pace.segment?.overdue || pace.behind
+                        ? "path-pace path-pace-tight"
+                        : "path-pace"
+                    }>
+                      {/* 구간이 있으면 **그 속도**를 말한다. 161시간을 먼 목표일까지
+                          고르게 나누면 실제 계획과 다르다 — 12/10 까지 끝내야 할
+                          57시간은 하루 53분인데, 전체로 나누면 1시간 7분이 나온다. */}
+                      {pace.segment ? (
+                        <>
+                          {pace.segment.overdue ? (
+                            <strong>
+                              {pace.segment.due_date} 마감이 {-pace.segment.days_left}일
+                              지났어요
+                            </strong>
+                          ) : (
+                            <strong>오늘 {minutesText(pace.segment.minutes_per_day)}</strong>
+                          )}
+                          <span className="muted">
+                            {" "}— {pace.segment.due_date} 까지{" "}
+                            {minutesText(pace.segment.left_minutes)}
+                            {!pace.segment.overdue && ` ÷ ${pace.segment.days_left}일`}
+                            {" · "}
+                            {pace.segment.title}
+                          </span>
+                          <span className="muted">
+                            {" · "}전체 {minutesText(pace.total_minutes)} 중{" "}
+                            {minutesText(pace.done_minutes)} 했음
+                            {pace.target_date && ` · 끝은 ${pace.target_date}`}
+                          </span>
+                        </>
+                      ) : pace.minutes_per_day != null ? (
+                        <>
+                          <strong>오늘 {minutesText(pace.minutes_per_day)}</strong>
+                          <span className="muted">
+                            {" "}— 남은 {minutesText(pace.left_minutes)} ÷ {pace.days_left}일
+                            {" · "}전체 {minutesText(pace.total_minutes)} 중{" "}
+                            {minutesText(pace.done_minutes)} 했음
+                          </span>
+                          {pace.behind && (
+                            <span className="muted">
+                              {" "}· 하루 3시간을 넘겨요. 목표일을 늦추거나 단계를 덜어내는 게 나아요.
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="muted">
+                          전체 {minutesText(pace.total_minutes)} 중{" "}
+                          {minutesText(pace.done_minutes)} 했음 — 목표일이 없어 오늘 할 몫은
+                          계산하지 않았어요.
+                        </span>
+                      )}
+                    </p>
+                  )}
+
                   {isOpen && (
                     <div className="step-list">
                       {path.steps.length === 0 ? (
                         <p className="muted">아직 단계가 없습니다. 아래에서 첫 단계를 넣으세요.</p>
                       ) : (
-                        path.steps.map((step) => (
-                          <button
-                            className={`step-item step-${step.status}`}
-                            key={step.id}
-                            onClick={() => onOpenSession(step.id)}
-                          >
-                            <span className="step-position">
-                              {step.status === "completed"
-                                ? "✓"
-                                : String(step.position + 1).padStart(2, "0")}
-                            </span>
-                            <span className="step-title">{step.title}</span>
-                            <span className="step-status">{stepStatusLabel(step.status)}</span>
-                            <span className="step-percent">
-                              {step.estimated_minutes > 0
-                                ? minutesText(step.estimated_minutes)
-                                : "시간 미정"}
-                            </span>
-                          </button>
-                        ))
+                        [...path.steps]
+                          .sort((a, b) => a.position - b.position)
+                          .map((step, index, rows) => (
+                            <StepRow
+                              key={step.id}
+                              step={step}
+                              first={index === 0}
+                              last={index === rows.length - 1}
+                              working={working}
+                              onOpen={() => onOpenSession(step.id)}
+                              onMove={(delta) => moveStep(path, step, delta)}
+                              onEdit={(body) => editStep(step, body)}
+                              onRemove={() => removeStep(step)}
+                            />
+                          ))
                       )}
 
                       <div className="step-form">
@@ -547,6 +761,36 @@ function LearningPage({ onOpenSession, initialTab = "paths" }) {
                 </section>
               )
             })}
+
+            {/* 로드맵은 "새 경로" 보다 위에 둔다 — 보통은 한 장을 통째로
+                넣지, 빈 경로를 만들고 단계를 하나씩 치지 않는다. */}
+            <section className="card learn-new">
+              {showRoadmap ? (
+                <RoadmapImporter
+                  working={working}
+                  skills={skills}
+                  onCancel={() => setShowRoadmap(false)}
+                  onDone={(result) => {
+                    setShowRoadmap(false)
+                    load(true)
+                    setActivePathId(result.learning_path_id)
+                    setNotice(
+                      `'${result.title}' 을(를) 넣었어요 — 단계 ${result.steps}개 · 체크 ${result.checklist_items}개` +
+                        (result.project_id
+                          ? ". 마지막 프로젝트도 만들었습니다 (프로젝트 화면에서 보여요)."
+                          : ".") +
+                        (result.skill_id
+                          ? ""
+                          : " 스킬을 안 걸었어요 — '설명 · 스킬 · 목표일 고치기' 에서 고르면 이 경로에 자료를 연결할 수 있습니다.")
+                    )
+                  }}
+                />
+              ) : (
+                <Button variant="secondary" writes onClick={() => setShowRoadmap(true)}>
+                  로드맵 붙여넣어 경로 만들기
+                </Button>
+              )}
+            </section>
 
             <section className="card learn-new">
               {showPathForm ? (
@@ -691,6 +935,7 @@ function LearningPage({ onOpenSession, initialTab = "paths" }) {
           priority={priority}
           working={working}
           onSetLevel={setLevel}
+          onSetTrack={setTrack}
           onAddSkill={addSkill}
         />
       )}
@@ -796,7 +1041,7 @@ function PathEditor({ path, skills = [], working, onSave }) {
             {path.target_date ?? "없음"}
           </span>
           <Button variant="quiet" writes onClick={() => setOpen(true)}>
-            {written ? "설명 · 목표일 고치기" : "설명 · 목표일 적기"}
+            {written ? "설명 · 스킬 · 목표일 고치기" : "설명 · 스킬 · 목표일 적기"}
           </Button>
         </div>
       </div>
@@ -1005,7 +1250,226 @@ function AddSkillForm({ working, onAdd }) {
   )
 }
 
-function ProgressTab({ paths, priority, working, onSetLevel, onAddSkill }) {
+/* 스킬 한 줄. 전공 칸과 교양 칸이 같은 줄을 쓴다 — 모양이 다르면
+   같은 것을 두 가지로 읽게 된다. */
+function SkillRow({ item, index, working, onSetLevel, onSetTrack }) {
+  const toGeneral = item.track !== "general"
+
+  return (
+    <div className="progress-row">
+      <div className="progress-row-head">
+        <strong>
+          {index + 1}. {item.skill}
+        </strong>
+
+        <span className="muted">
+          {item.total_demand > 0
+            ? `기회 ${item.total_demand}건 중 ${item.demand_count}건이 요구`
+            : "모아둔 기회 없음"}
+          {" · "}학습 {item.learning_progress}%
+        </span>
+
+        {/* 레벨은 우선순위의 가장 큰 레버다. 고칠 수 없으면 배운 것이
+            우선순위에 반영되지 않는다. */}
+        <span className="level-set" role="group" aria-label={`${item.skill} 레벨`}>
+          레벨
+          {[0, 1, 2, 3, 4].map((value) => (
+            <button
+              key={value}
+              className={value === item.my_level ? "level-dot level-dot-on" : "level-dot"}
+              aria-pressed={value === item.my_level}
+              aria-label={`${item.skill} 레벨 ${value}`}
+              disabled={working}
+              onClick={() => onSetLevel(item, value)}
+            >
+              {value}
+            </button>
+          ))}
+        </span>
+
+        <Button
+          variant="quiet"
+          writes
+          disabled={working}
+          onClick={() => onSetTrack(item, toGeneral ? "general" : "major")}
+        >
+          {toGeneral ? "교양으로 →" : "← 전공으로"}
+        </Button>
+      </div>
+
+      <ProgressBar value={item.learning_progress} label={`${item.skill} 학습 진행`} />
+      <span className="progress-row-percent">{item.learning_progress}%</span>
+    </div>
+  )
+}
+
+
+/* 로드맵 한 장을 통째로 붙여넣는 칸.
+
+   체크리스트 붙여넣기는 **한 주차**를 만든다. 경로 하나를 세우려면 단계를
+   하나씩 손으로 넣어야 했고, 그래서 경로가 "주제 목록" 에서 멈췄다.
+
+   넣기 전에 먼저 읽어서 보여준다 — 경로 하나가 통째로 생기는 일이다. */
+function RoadmapImporter({ working, skills = [], onDone, onCancel }) {
+  const [text, setText] = useState("")
+  const [preview, setPreview] = useState(null)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  /* 스킬을 안 걸면 그 경로에서는 자료를 고를 수 없다 — 자료가 스킬로
+     묶여 있기 때문이다. 넣고 나서야 막히는 것보다 여기서 묻는 게 낫다. */
+  const [skillId, setSkillId] = useState("")
+
+  const read = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      setPreview(await api.learningPaths.parseRoadmap(text))
+    } catch (failure) {
+      setPreview(null)
+      setError(failure?.detail || "읽지 못했습니다.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const save = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      onDone(await api.learningPaths.importRoadmap(text, skillId ? Number(skillId) : null))
+    } catch (failure) {
+      setError(failure?.detail || "넣지 못했습니다.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="roadmap-import">
+      <p className="card-label">로드맵 붙여넣기</p>
+
+      <p className="muted form-hint">
+        Claude 에 &ldquo;이 스킬 로드맵 짜줘&rdquo; 하고 받은 글을 그대로 넣으세요.
+        경로 · 단계 · 체크 항목 · <strong>마지막 프로젝트</strong>까지 한 번에 생깁니다.
+      </p>
+
+      <details className="roadmap-format">
+        <summary>어떤 형식이어야 하나요</summary>
+        <pre>{`# 경로: 데이터 파이프라인 — 신입 포트폴리오용
+목표: 공고 20/71건이 요구. 레벨 0 → 2
+목표일: 2026-12-20
+
+## 1주차 · SQL 로 원천 데이터 다루기 (180분)
+- 윈도우 함수로 집계 쿼리 쓰기
+- 조인 성능 확인하기
+
+## 2주차 · Airflow 로 돌리기 (1시간 30분)
+- DAG 하나 만들기
+
+## 최종 프로젝트: 공고 수집 → 정제 → 적재 → 대시보드
+증명: 데이터 파이프라인, SQL, BigQuery
+남길 것: GitHub, 데모 링크`}</pre>
+      </details>
+
+      <textarea
+        className="agent-input roadmap-text"
+        rows={10}
+        value={text}
+        placeholder="여기에 붙여넣으세요"
+        onChange={(event) => {
+          setText(event.target.value)
+          setPreview(null)
+        }}
+      />
+
+      <label className="learn-field">
+        <span>
+          이 경로가 키우는 스킬 — 안 고르면 나중에 이 경로에서 자료를 못 고릅니다
+        </span>
+        <select
+          className="path-select"
+          value={skillId}
+          onChange={(event) => setSkillId(event.target.value)}
+        >
+          <option value="">나중에 고르기</option>
+          {skills.map((skill) => (
+            <option key={skill.id} value={skill.id}>
+              {skill.name} · 레벨 {skill.level ?? 0}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {error && <p className="muted roadmap-error">{error}</p>}
+
+      {preview && (
+        <div className="roadmap-preview">
+          <strong>{preview.title}</strong>
+          <p className="muted opp-meta">
+            단계 {preview.steps.length}개 · 모두 {minutesText(preview.total_minutes)}
+            {preview.target_date && ` · 목표일 ${preview.target_date}`}
+          </p>
+
+          <ol className="roadmap-steps">
+            {preview.steps.map((step, index) => (
+              <li key={index}>
+                {step.title}
+                <span className="muted">
+                  {" "}
+                  {step.minutes > 0 ? minutesText(step.minutes) : "시간 미정"}
+                  {step.items.length > 0 && ` · 체크 ${step.items.length}개`}
+                </span>
+              </li>
+            ))}
+          </ol>
+
+          {preview.project ? (
+            <p className="roadmap-project">
+              <strong>최종 프로젝트 · {preview.project.name}</strong>
+              {preview.project.skills.length > 0 && (
+                <span className="muted"> — {preview.project.skills.join(" · ")} 를 증명</span>
+              )}
+            </p>
+          ) : null}
+
+          {/* 지어내지 않고, 빠진 것을 말한다. */}
+          {preview.warnings.map((warning) => (
+            <p className="muted roadmap-warning" key={warning}>
+              ⚠ {warning}
+            </p>
+          ))}
+        </div>
+      )}
+
+      <div className="ui-row">
+        {preview ? (
+          <Button writes disabled={working || busy} onClick={save}>
+            이대로 넣기
+          </Button>
+        ) : (
+          <Button disabled={working || busy || !text.trim()} onClick={read}>
+            읽어보기
+          </Button>
+        )}
+        <Button variant="quiet" disabled={busy} onClick={onCancel}>
+          그만두기
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+
+function ProgressTab({ paths, priority, working, onSetLevel, onSetTrack, onAddSkill }) {
+  /* 전공(도구)과 교양(배경지식)을 나눠 놓는다.
+
+     점수는 안 깎는다 — 교양이라고 수요를 낮다고 말하면 그건 거짓이다.
+     **세는 건 그대로 두고 놓는 자리를 나눈다.** 한 줄에 세우면
+     "Infrastructure 21%" 가 맨 위에 올라오는데, 그걸 보고 뭘 공부할지는
+     알 수 없다. 전공은 "다음에 뭘 할까" 의 답이고 교양은 "틈날 때 읽을 것" 이다. */
+  const major = priority.filter((item) => item.track !== "general")
+  const general = priority.filter((item) => item.track === "general")
+
   return (
     <>
       <section className="card">
@@ -1032,48 +1496,21 @@ function ProgressTab({ paths, priority, working, onSetLevel, onAddSkill }) {
       </section>
 
       <section className="card">
-        <p className="card-label">스킬별 수요 · 레벨 (우선순위 순)</p>
+        <p className="card-label">전공 · 손에 익히는 도구 (우선순위 순)</p>
 
-        {priority.length === 0 ? (
-          <p className="muted">등록된 스킬이 없습니다.</p>
+        {major.length === 0 ? (
+          <p className="muted">전공으로 둔 스킬이 없습니다.</p>
         ) : (
           <div className="progress-rows">
-            {priority.map((item, index) => (
-              <div className="progress-row" key={item.skill}>
-                <div className="progress-row-head">
-                  <strong>
-                    {index + 1}. {item.skill}
-                  </strong>
-
-                  <span className="muted">
-                    {item.total_demand > 0
-                      ? `기회 ${item.total_demand}건 중 ${item.demand_count}건이 요구`
-                      : "모아둔 기회 없음"}
-                    {" · "}학습 {item.learning_progress}%
-                  </span>
-
-                  {/* 레벨은 우선순위의 가장 큰 레버다. 고칠 수 없으면 배운 것이
-                      우선순위에 반영되지 않는다. */}
-                  <span className="level-set" role="group" aria-label={`${item.skill} 레벨`}>
-                    레벨
-                    {[0, 1, 2, 3, 4].map((value) => (
-                      <button
-                        key={value}
-                        className={value === item.my_level ? "level-dot level-dot-on" : "level-dot"}
-                        aria-pressed={value === item.my_level}
-                        aria-label={`${item.skill} 레벨 ${value}`}
-                        disabled={working}
-                        onClick={() => onSetLevel(item, value)}
-                      >
-                        {value}
-                      </button>
-                    ))}
-                  </span>
-                </div>
-
-                <ProgressBar value={item.learning_progress} label={`${item.skill} 학습 진행`} />
-                <span className="progress-row-percent">{item.learning_progress}%</span>
-              </div>
+            {major.map((item, index) => (
+              <SkillRow
+                key={item.skill}
+                item={item}
+                index={index}
+                working={working}
+                onSetLevel={onSetLevel}
+                onSetTrack={onSetTrack}
+              />
             ))}
           </div>
         )}
@@ -1085,6 +1522,32 @@ function ProgressTab({ paths, priority, working, onSetLevel, onAddSkill }) {
 
         <AddSkillForm working={working} onAdd={onAddSkill} />
       </section>
+
+      {/* 교양 — 읽고 아는 것. 도구와 한 줄에 세우면 "다음에 뭘 할까" 의
+          답이 안 나온다. 점수는 깎지 않았다, 자리만 나눴다. */}
+      {general.length > 0 && (
+        <section className="card">
+          <p className="card-label">교양 · 읽고 아는 배경지식</p>
+
+          <p className="muted opp-meta">
+            수요는 같은 방식으로 셉니다 — 점수를 깎지 않았어요. 다만 이쪽은
+            매일 붙잡는 것이 아니라 책 한 권 읽고 정리하는 쪽입니다.
+          </p>
+
+          <div className="progress-rows">
+            {general.map((item, index) => (
+              <SkillRow
+                key={item.skill}
+                item={item}
+                index={index}
+                working={working}
+                onSetLevel={onSetLevel}
+                onSetTrack={onSetTrack}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </>
   )
 }

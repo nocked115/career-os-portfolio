@@ -51,7 +51,31 @@ EXCLUDE_NAME_WORDS = (
     "영업", "마케팅", "md", "pd", "생산", "품질", "qc", "설비", "포장", "미생물",
     "보상", "인사", "구매", "물류", "회계", "재무", "크리에이터", "creator", "콘텐츠",
     "디자인", "완전성", "밸리데이션", "보건", "제조", "조리",
+    # 기업 채용 보드를 붙이며 실제로 걸러야 했던 것들 — 제목에 Data · AI 가 들어가도
+    # 하는 일이 다르다 ("Data, Privacy & AI Legal팀", "AI Security", "Android").
+    "legal", "변호사", "컴플라이언스", "리스크", "보안", "security",
+    "frontend", "프런트엔드", "프론트엔드", "android", "ios", "모바일",
+    "fp&a", "financial", "회계사", "운영", "operations",
 )
+
+
+# 제목에 적힌 경력 조건. 채용 보드 공고는 "경력" 칸이 따로 없고 제목에 적힌다.
+SENIOR_TITLE = re.compile(
+    r"(\d+\s*년\s*이상|경력\s*\d|\(경력\)|senior|staff|principal|lead\b|head of|director|"
+    r"manager|시니어|리드|총괄|팀장)",
+    re.IGNORECASE,
+)
+JUNIOR_TITLE = re.compile(r"(신입|인턴|intern|junior|new ?grad|entry)", re.IGNORECASE)
+
+
+def career_from_title(title: str) -> str:
+    """제목만 보고 경력 조건을 읽는다. 신입 · 인턴 표시가 있으면 그쪽이 이긴다
+    ("(신입/경력)" 은 신입도 받는다)."""
+    if JUNIOR_TITLE.search(title or ""):
+        return "신입"
+    if SENIOR_TITLE.search(title or ""):
+        return "경력"
+    return ""
 
 
 def _has(text: str, words) -> list[str]:
@@ -72,8 +96,19 @@ def _career_only(career: str) -> bool:
     return parts == {"경력"}
 
 
-def judge_section(name: str, career: str = "", job: str = "") -> tuple[bool, str]:
-    """(맞는가, 이유). 이유는 화면에 그대로 보인다."""
+def judge_section(
+    name: str, career: str = "", job: str = "", weak_ok: bool = True, min_strong: int = 1
+) -> tuple[bool, str]:
+    """(맞는가, 이유). 이유는 화면에 그대로 보인다.
+
+    weak_ok 는 "IT 계열 이름 + 설명에 데이터 말" 만으로 통과시킬지다.
+    - 모집 부문(공채)은 설명이 두세 줄이라 그 조합이 근거가 된다 → True
+    - 공고 한 건 전체(기업 채용 보드)는 본문이 수천 자라 "AI" 한 번은 근거가 못 된다 → False
+      실제로 Android · 운영 공고가 본문에 AI 가 한 번 나와 통과했다.
+
+    min_strong 은 본문에서 직무를 특정하는 말이 몇 종류 나와야 하는지다. 같은 이유로
+    긴 본문에는 2 이상을 준다.
+    """
     excluded = _has(name, EXCLUDE_NAME_WORDS)
     if excluded:
         return False, f"{name} — 데이터 · AI 직무가 아니에요"
@@ -84,11 +119,12 @@ def judge_section(name: str, career: str = "", job: str = "") -> tuple[bool, str
     if _has(name, CORE_NAME_WORDS):
         return True, f"{name} — 부문 이름이 데이터 · AI 직무"
 
-    if _has(name, TECH_NAME_WORDS) and _has(job, WEAK_JOB_WORDS + STRONG_JOB_WORDS):
+    if weak_ok and _has(name, TECH_NAME_WORDS) and _has(job, WEAK_JOB_WORDS + STRONG_JOB_WORDS):
         return True, f"{name} — IT 부문에 데이터 · AI 일이 있어요"
 
+    # 긴 본문에서는 한 번 스친 말이 근거가 못 된다. 회사 소개에 "AI" 가 한 줄씩 들어 있다.
     strong = _has(job, STRONG_JOB_WORDS)
-    if strong:
+    if len(strong) >= min_strong:
         return True, f"{name} — 하는 일에 '{strong[0]}'"
 
     return False, f"{name} — 데이터 · AI 직무가 아니에요"

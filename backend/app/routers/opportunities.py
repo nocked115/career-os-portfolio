@@ -114,6 +114,31 @@ def collect_opportunities(db: Session = Depends(get_db)):
     return opportunity_service.collect_all(db)
 
 
+@router.get("/sources")
+def list_sources(db: Session = Depends(get_db)):
+    """출처별 마지막 수집 결과. 막힌 수집기를 화면이 말할 수 있어야 한다."""
+    rows = (
+        db.query(models.CollectorRun)
+        .order_by(models.CollectorRun.source)
+        .all()
+    )
+
+    return {
+        "sources": [
+            {
+                "source": row.source,
+                "status": row.status,
+                "error": row.error,
+                "fetched": row.fetched,
+                "created": row.created,
+                "ran_at": row.ran_at,
+            }
+            for row in rows
+        ],
+        "failed": [row.source for row in rows if row.status == "failed"],
+    }
+
+
 @router.post("/review-fit")
 def review_fit(db: Session = Depends(get_db)):
     """이미 들여온 공고를 모집 부문으로 다시 판단한다. 데이터 · AI 직무가 아니면 보관함으로."""
@@ -126,6 +151,59 @@ def keep_opportunity(opportunity_id: int, db: Session = Depends(get_db)):
     opportunity = get_or_404(db, models.Opportunity, opportunity_id, "Opportunity")
     opportunity_service.keep_anyway(db, opportunity)
     return opportunity_service.score_opportunity(db, opportunity)
+
+
+@router.post("/{opportunity_id}/favorite")
+def set_favorite(opportunity_id: int, db: Session = Depends(get_db)):
+    """즐겨찾기로 켠다.
+
+    마감이 멀거나 없는 공고는 오늘 계획에 안 올라온다. 매칭 점수가 가장 높은 것들이
+    정작 마감이 없어서 묻히는 일이 있었다 — 켜두면 화면 맨 위 배지가 센다.
+    """
+    opportunity = get_or_404(db, models.Opportunity, opportunity_id, "Opportunity")
+    opportunity.favorite = True
+    db.commit()
+    return opportunity_service.score_opportunity(db, opportunity)
+
+
+@router.delete("/{opportunity_id}/favorite")
+def unset_favorite(opportunity_id: int, db: Session = Depends(get_db)):
+    """즐겨찾기를 끈다. 공고 자체는 그대로 둔다."""
+    opportunity = get_or_404(db, models.Opportunity, opportunity_id, "Opportunity")
+    opportunity.favorite = False
+    db.commit()
+    return opportunity_service.score_opportunity(db, opportunity)
+
+
+@router.post("/{opportunity_id}/block")
+def block_opportunity(
+    opportunity_id: int,
+    body: schemas.OpportunityBlock,
+    db: Session = Depends(get_db),
+):
+    """지원 자격이 안 되는 공고로 표시한다 (석사 필수 · 경력 3년 …).
+
+    **지우지 않는다.** 까닭을 적어 두면 "Computer Vision 공고 4건 중
+    3건이 석사 요구" 를 말할 수 있다. 삭제하면 그 신호까지 사라지고,
+    남은 1건만 보고 "수요가 적네" 로 잘못 읽게 된다.
+
+    수요에서는 빠진다 — 지원할 수 없는 공고는 지금의 수요가 아니다
+    (마감 지난 것에 이미 쓰고 있는 원칙이다).
+
+    까닭을 비워 보내면 되돌린다.
+    """
+    opportunity = get_or_404(db, models.Opportunity, opportunity_id, "Opportunity")
+
+    opportunity.blocked_reason = body.reason.strip()
+
+    db.commit()
+    db.refresh(opportunity)
+
+    return {
+        "id": opportunity.id,
+        "title": opportunity.title,
+        "blocked_reason": opportunity.blocked_reason,
+    }
 
 
 @router.post("/relink-skills")
@@ -195,6 +273,15 @@ def fetch_posting_from_url(
 
     preview = posting_parser.parse_posting(db, text, payload.url)
     preview["text"] = text
+
+    # 읽히긴 했지만 본문이라기엔 얇으면 그렇다고 말한다. 큰 채용 포털은 대개 여기에 해당한다 —
+    # 화면을 그려야 본문이 보이기 때문이다. 미리보기를 지어내지 않고 붙여넣기를 권한다.
+    if len(text) < url_import.WEAK_TEXT:
+        preview["warnings"] = [
+            "주소로 읽은 글이 짧아요. 이 사이트는 화면을 그려야 본문이 보이는 것 같아요 — "
+            "공고 페이지에서 본문을 복사해 위 칸에 붙여넣으면 훨씬 정확합니다.",
+            *preview.get("warnings", []),
+        ]
 
     return preview
 

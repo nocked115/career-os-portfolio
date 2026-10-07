@@ -110,7 +110,9 @@ def project_evidence_strength(project, has_experience: bool = False) -> float:
 
     있다/없다가 아니라 어디까지 갔는지를 본다.
     """
-    if not project.career_related:
+    # 학습용(수업 과제)은 증거로 세지 않는다. 세면 "과제를 했으니 그 스킬은 덜 급하다" 가
+    # 되는데, 정작 포트폴리오에 보여줄 것은 없다.
+    if not project.career_related or project.purpose != "evidence":
         return 0.0
 
     progress = project.progress_percent or 0
@@ -214,7 +216,11 @@ def build_skill_priorities(db):
     #
     # Job 으로 들어온 것도 이제 Opportunity 에 남는다
     # (opportunity.bridge_from_legacy_job).
-    total_demand = market_service.count_opportunities(db)
+    # 분자와 분모가 같은 모집단이어야 한다. 전에는 분모만 걸러서,
+    # 마감 지난 공고의 스킬이 분자에만 남아 비율을 부풀렸다.
+    demand_rows = market_service.demand_opportunities(db)
+    counted = {row.id for row in demand_rows}
+    total_demand = len(demand_rows)
 
     target_career = get_active_target_career(db)
     target_skill_ids = (
@@ -226,7 +232,7 @@ def build_skill_priorities(db):
     entries = []
 
     for skill in skills:
-        demand_count = len(skill.opportunities)
+        demand_count = sum(1 for row in skill.opportunities if row.id in counted)
 
         market_percentage = calculate_market_percentage(
             demand_count=demand_count,
@@ -238,7 +244,7 @@ def build_skill_priorities(db):
         career_projects = [
             project
             for project in skill.projects
-            if project.career_related
+            if project.career_related and project.purpose == "evidence"
         ]
 
         has_project_evidence = len(career_projects) > 0
@@ -337,6 +343,10 @@ def serialize_priority(entry, include_resources: bool = False) -> dict:
         # 이름만 주면 PATCH 할 대상을 찾을 수 없다.
         "skill_id": entry["skill"].id,
         "skill": entry["skill_name"],
+        # 전공(도구)인지 교양(배경지식)인지. 화면이 두 칸으로 나눠 보인다 —
+        # 한 줄에 세우면 "Infrastructure 21%" 가 오늘 할 일을 밀어내는데
+        # 정작 그걸 보고 뭘 공부할지는 알 수 없다.
+        "track": entry["skill"].track or models.TRACK_MAJOR,
         "market_percentage": entry["market_percentage"],
         "demand_count": entry["demand_count"],
         "total_demand": entry["total_demand"],
@@ -378,3 +388,20 @@ def get_learning_priority(db, include_resources: bool = False) -> list[dict]:
         serialize_priority(entry, include_resources=include_resources)
         for entry in build_skill_priorities(db)
     ]
+
+
+def get_learning_priority_by_track(db, include_resources: bool = False) -> dict:
+    """전공 · 교양을 나눠서 돌려준다.
+
+    점수는 그대로다 — 교양이라고 점수를 깎지 않는다. 깎으면 그 숫자가
+    어디서 나왔는지 설명할 수 없고, 수요가 실제로 높은 것을 낮다고
+    말하게 된다. **세는 건 그대로 두고 놓는 자리를 나눈다.**
+
+    전공은 "다음에 뭘 할까" 의 답이고, 교양은 "틈날 때 읽을 것" 이다.
+    """
+    rows = get_learning_priority(db, include_resources=include_resources)
+
+    return {
+        "major": [row for row in rows if row["track"] == models.TRACK_MAJOR],
+        "general": [row for row in rows if row["track"] == models.TRACK_GENERAL],
+    }

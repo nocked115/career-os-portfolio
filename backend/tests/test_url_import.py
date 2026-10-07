@@ -83,3 +83,24 @@ def test_the_endpoint_answers_422_with_the_reason(client):
     refused = client.post("/opportunities/fetch-url", json={"url": "http://127.0.0.1/x"})
 
     assert refused.status_code == 422
+
+
+def test_the_site_name_is_stripped_from_the_title():
+    html = "<html><head><title>[오성푸드] 경리 사무원 모집 - 사람인</title></head><body>" + (
+        "<p>지원 자격: 학사 이상이며 관련 경험이 있는 분을 찾습니다. 근무지는 서울입니다.</p>" * 2
+    ) + "</body></html>"
+    pages = {"https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=1": html}
+
+    text = url_import.fetch_posting(
+        "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=1", _opener(pages)
+    )
+
+    assert text.splitlines()[0] == "[오성푸드] 경리 사무원 모집"
+
+
+def test_repeated_navigation_lines_are_dropped_once():
+    text = url_import.to_text(
+        "<div>공채는 역시, 사람인</div><div>공채는 역시, 사람인</div><div>본문 내용</div>"
+    )
+
+    assert text.count("공채는 역시, 사람인") == 1

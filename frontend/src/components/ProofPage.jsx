@@ -32,13 +32,22 @@ import "../Evidence.css"
 // 결과물이 있는 작업이 아닌 것. 포트폴리오를 권하지 않는다.
 const ACTIVITY_TYPES = ["activity"]
 
+/* 지원서를 쓸 때마다 다시 떠올리게 되는 것들. 한 번 적어 두면 문항마다 다시 고민하지 않는다.
+   앱은 여기 적힌 것만 쓴다 — 없는 이야기를 채우지 않는다. */
 const DETAIL_FIELDS = [
-  ["short_description", "무엇을 했나"],
-  ["problem", "상황과 과제"],
-  ["role", "내 역할"],
-  ["actions", "한 일"],
-  ["results", "결과"],
-  ["metrics", "수치"]
+  ["short_description", "무엇을 했나", "한 문장으로"],
+  ["problem", "상황과 과제", "왜 시작됐고 무엇이 가장 어려웠나"],
+  ["role", "내 역할", "직급 · 맡은 자리"],
+  ["contribution", "내 몫", "어디까지가 내가 한 것인가 (팀이면 특히)"],
+  ["stakeholders", "함께한 사람 · 대상", "누구와 했고 누구를 위한 일이었나"],
+  ["actions", "한 일", "실제로 한 행동"],
+  ["obstacles", "막힌 것과 푼 방법", "갈등 · 실패 · 그때 무엇을 바꿨나"],
+  ["results", "결과", "정성적 결과"],
+  ["metrics", "수치", "정량적 결과 — 분모와 함께"],
+  ["learned", "배운 것", "다시 한다면 무엇을 다르게 할까"],
+  ["reusable", "남은 것 · 재현 가능성", "코드 · 문서 · 다시 쓸 수 있는가"],
+  ["target_roles", "관련 직무 · 산업", "이 경험이 통하는 자리"],
+  ["questions", "이 경험이 답이 되는 문항", "예: 협업 중 갈등 / 실패 경험 / 문제 해결"]
 ]
 
 const BLANK = {
@@ -55,7 +64,8 @@ const BLANK = {
   metrics: "",
   technologies: "",
   github_url: "",
-  blog_url: ""
+  blog_url: "",
+  portfolio_url: ""
 }
 
 function period(experience) {
@@ -143,9 +153,12 @@ function ExperienceEditor({ experience, working, focusField, onSave, onCancel })
           />
         </label>
 
-        {DETAIL_FIELDS.map(([field, label]) => (
+        {DETAIL_FIELDS.map(([field, label, hint]) => (
           <label className="learn-field prj-full" key={field}>
-            <span>{label}</span>
+            <span>
+              {label}
+              {hint && <span className="exp-hint"> · {hint}</span>}
+            </span>
             <textarea
               id={`exp-${key}-${field}`}
               className="learn-textarea"
@@ -182,6 +195,18 @@ function ExperienceEditor({ experience, working, focusField, onSave, onCancel })
             placeholder="https://velog.io/…"
             value={draft.blog_url}
             onChange={(event) => set("blog_url", event.target.value)}
+          />
+        </label>
+
+        {/* 지원서마다 내는 주소. 깃허브 프로필 · 블로그와 다른 것이라 칸을 따로 둔다 —
+            지원할 때마다 어디 적어뒀는지 찾지 않게. */}
+        <label className="learn-field prj-wide">
+          <span>포트폴리오 링크</span>
+          <input
+            className="agent-input"
+            placeholder="https://…  (지원서에 내는 주소)"
+            value={draft.portfolio_url}
+            onChange={(event) => set("portfolio_url", event.target.value)}
           />
         </label>
       </div>
@@ -655,6 +680,12 @@ function ProofPage({ onChanged, focus }) {
 
           {readyToProve.map((project) => {
             const item = byProject[project.id]
+            /* 남은 것 중 첫 번째가 권하는 순서다. 결과도 링크도 안 적힌
+               프로젝트를 먼저 경험으로 저장하면 빈 칸만 든 경험이 하나
+               생기고, 그 경험이 바로 아래 "결과 없는 경험" 에 다시 뜬다.
+               카드가 자기 순서를 어기지 않게 버튼 순서를 맞춘다. */
+            const next = item.next_action
+            const saveFirst = !next || next.key === "save_to_experience"
 
             return (
               <div className="prove-item" key={project.id}>
@@ -673,13 +704,37 @@ function ProofPage({ onChanged, focus }) {
                   ))}
                 </div>
 
+                {next && !saveFirst && (
+                  <p className="muted opp-meta">
+                    다음에 할 것 — {next.label}: {next.hint}
+                  </p>
+                )}
+
                 <div className="ui-row">
-                  <Button writes disabled={working} onClick={() => toExperience(project)}>
-                    경험으로 저장
-                  </Button>
-                  <a className="ui-btn ui-btn-secondary" href="#/projects">
-                    결과 · 링크 기록하러 가기
-                  </a>
+                  {saveFirst ? (
+                    <>
+                      <Button writes disabled={working} onClick={() => toExperience(project)}>
+                        경험으로 저장
+                      </Button>
+                      <a className="ui-btn ui-btn-secondary" href="#/projects">
+                        결과 · 링크 기록하러 가기
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      <a className="ui-btn ui-btn-primary" href="#/projects">
+                        결과 · 링크 기록하러 가기
+                      </a>
+                      <Button
+                        variant="secondary"
+                        writes
+                        disabled={working}
+                        onClick={() => toExperience(project)}
+                      >
+                        그냥 지금 경험으로 저장
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             )

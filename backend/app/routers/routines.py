@@ -40,6 +40,17 @@ def list_routines(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/routines/learned")
+def list_learned(
+    limit: int = 200,
+    routine_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """적어 둔 "몰랐던 것" 모아보기 — 최근 날짜부터."""
+    entries = routine_service.learned_entries(db, limit=limit, routine_id=routine_id)
+    return {"entries": entries, "count": len(entries)}
+
+
 @router.post("/routines", status_code=201)
 def create_routine(body: schemas.RoutineCreate, db: Session = Depends(get_db)):
     _check_path(db, body.learning_path_id)
@@ -116,7 +127,7 @@ def set_routine_log(
         raise HTTPException(status_code=400, detail="아직 오지 않은 날은 기록할 수 없어요.")
 
     if body.done:
-        routine_service.record(db, routine, log_date, body.count)
+        routine_service.record(db, routine, log_date, body.count, body.learned)
     else:
         routine_service.unrecord(db, routine, log_date)
 
