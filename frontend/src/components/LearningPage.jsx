@@ -336,7 +336,8 @@ function LearningPage({ onOpenSession, initialTab = "paths" }) {
         await api.learningSteps.create({
           learning_path_id: path.id,
           title,
-          position: path.steps.length
+          // 자리 번호는 서버가 정한다. 개수를 보내면 중간을 지운 경로에서
+          // 이미 찬 번호와 겹쳐 409 가 난다 — 실제로 그래서 못 넣었다.
         })
         setStepDrafts((current) => ({ ...current, [path.id]: "" }))
       },

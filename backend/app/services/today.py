@@ -1026,6 +1026,15 @@ def build_candidates(db, today: date) -> list[dict]:
 # 시간 배분
 # --------------------------------
 
+# "끝날 때까지" — 시간을 정하지 않는다. 하루치(24시간)를 예산으로 두고
+# 개수 상한도 풀어, 오늘 할 수 있는 것을 다 담는다.
+#
+# 수현: "오늘 몇 시간 할래요? 이거에서 30분 · 세 시간 · 끝날 때까지,
+# 저 단위로." 시간을 정해 두는 건 대개 맞지만, 마감 앞이나 몰아서 하는
+# 날에는 앱이 2개만 주고 멈추는 것이 오히려 방해가 된다.
+NO_LIMIT_MINUTES = 1440
+
+
 def allocate(candidates: list[dict], available_minutes: int, intensity: dict):
     """가용 시간과 강도에 맞게 자른다.
 
@@ -1036,12 +1045,16 @@ def allocate(candidates: list[dict], available_minutes: int, intensity: dict):
 
     min_block 은 일의 길이를 거르는 기준이 아니다.
     짧은 일은 짧은 대로 넣는다.
+
+    "끝날 때까지"(NO_LIMIT_MINUTES) 면 개수 상한을 풀어 준다. 시간을
+    안 정했는데 개수로 막으면 "끝까지" 가 거짓말이 된다.
     """
     chosen = []
     remaining = max(0, available_minutes)
+    no_limit = available_minutes >= NO_LIMIT_MINUTES
 
     for candidate in candidates:
-        if len(chosen) >= intensity["max_tasks"]:
+        if not no_limit and len(chosen) >= intensity["max_tasks"]:
             break
 
         if remaining < intensity["min_block"]:
@@ -1378,6 +1391,10 @@ def serialize_task(task) -> dict:
         "reason": task.reason,
         "status": task.status,
         "completed_at": task.completed_at,
+        # 실제로 걸린 시간. 이게 빠져 있어서, 적어 넣은 시간이 저장은 되는데
+        # 오늘 화면은 그 값을 받지도 못했다 — 적은 사람 눈에는 안 적힌 것과
+        # 같다.
+        "actual_minutes": task.actual_minutes,
         "carried_from": task.carried_from,
         "learning_step_id": task.learning_step_id,
         "project_id": task.project_id,
@@ -1678,8 +1695,16 @@ def build_plan(
     )
     done_count = sum(1 for t in tasks if t.status == "done")
 
+    # 시험 주간이면 그 사실을 같이 들고 간다. 계획을 대신 바꾸지는
+    # 않는다 — 줄일지는 사람이 정한다. 다만 **말은 해야** 한다. 전에는
+    # 중간고사 주에도 평소와 똑같은 분량을 내밀었다.
+    from . import calendar as calendar_service
+
+    exam = calendar_service.exam_window(db, today)
+
     return {
         "date": today,
+        "exam": exam,
         "available_minutes": available_minutes,
         "intensity": intensity_name,
         "intensity_label": intensity["label"],
@@ -1745,14 +1770,20 @@ def release_plan_tasks(db, column, value) -> dict:
 ADD_KINDS = ("project", "learning_step", "resource", "custom")
 
 
-def add_task(db, kind: str, target_id=None, title: str = "", minutes: int = 30) -> dict:
-    """오늘 계획에 사람이 직접 한 줄을 넣는다.
+def add_task(db, kind: str, target_id=None, title: str = "", minutes: int = 30,
+             on: date | None = None) -> dict:
+    """계획에 사람이 직접 한 줄을 넣는다. 기본은 오늘, 날짜를 주면 그날.
 
     앱이 고른 것만 할 수 있으면 "시간이 남아서 이걸 하고 싶다" 를 넣을 곳이 없다.
     계획은 제안이지 명령이 아니다. 대신 **무엇을 가리키는지**는 남긴다 —
     완료했을 때 진행률 · 증거가 같이 움직여야 하기 때문이다.
+
+    날짜를 받는 까닭(수현): "오늘 · 내일 해야 할 거 이런 게시판 하나
+    만들어주면 안 돼? 토요일까지 친구에게 전달 · ~21일까지 ppt ..."
+    앞으로 며칠 안에 해야 할 약속이 적을 데가 없었다. 오늘 판에만 넣을 수
+    있어서, 내일 할 일을 적으려면 오늘 목록을 어지럽히는 수밖에 없었다.
     """
-    today = date.today()
+    today = on or date.today()
 
     if kind not in ADD_KINDS:
         raise ValueError("넣을 수 있는 종류가 아니에요.")
@@ -1813,7 +1844,13 @@ def add_task(db, kind: str, target_id=None, title: str = "", minutes: int = 30) 
     ))
     db.commit()
 
-    return {"added": True, "reason": reason, "plan": build_plan(db, today)}
+    return {
+        "added": True,
+        "reason": reason,
+        "on": today,
+        # 오늘 것이 아니면 오늘 판은 그대로다. 예산도 안 건드린다.
+        "plan": build_plan(db, date.today()),
+    }
 
 
 def reopen_task(db, task) -> dict:
@@ -1925,3 +1962,51 @@ def complete_task(db, task, count: int | None = None, actual_minutes: int | None
     db.refresh(task)
 
     return {"task": serialize_task(task), "effects": effects}
+
+
+# 며칠 앞까지 "앞으로 올 것" 으로 볼 것인가.
+UPCOMING_DAYS = 10
+
+
+def upcoming(db, today: date | None = None, days: int = UPCOMING_DAYS) -> dict:
+    """오늘 다음으로 해야 할 것들 — 날짜별로.
+
+    수현: "오늘 · 내일 해야 할 거 이런 게시판 뭐 하나 만들어주면 안 돼?"
+
+    오늘 판은 오늘만 보인다. 그래서 "토요일까지 친구에게 전달",
+    "~21일까지 ppt" 같은 **며칠 뒤 약속**을 적을 데가 없었다. 달력에
+    넣자니 시간을 먹는 일정이 아니고, 오늘 판에 넣자니 오늘 것이 아니다.
+
+    여기는 **예산을 세지 않는다.** 앞으로 할 일을 오늘 시간에서 빼면
+    오늘 계획이 틀어진다.
+    """
+    today = today or date.today()
+    last = today + timedelta(days=days)
+
+    rows = (
+        db.query(models.DailyPlanTask)
+        .filter(models.DailyPlanTask.plan_date > today)
+        .filter(models.DailyPlanTask.plan_date <= last)
+        .filter(models.DailyPlanTask.status != "done")
+        .order_by(models.DailyPlanTask.plan_date, models.DailyPlanTask.position)
+        .all()
+    )
+
+    by_day: dict[date, list] = {}
+
+    for task in rows:
+        by_day.setdefault(task.plan_date, []).append(task)
+
+    return {
+        "today": today,
+        "days": [
+            {
+                "date": day,
+                "days_away": (day - today).days,
+                "weekday": "월화수목금토일"[day.weekday()],
+                "tasks": [serialize_task(task) for task in tasks],
+            }
+            for day, tasks in sorted(by_day.items())
+        ],
+        "count": len(rows),
+    }

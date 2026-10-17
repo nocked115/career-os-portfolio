@@ -192,6 +192,10 @@ from .routers import routines as routines_router  # noqa: E402
 
 app.include_router(routines_router.router)
 
+from .routers import thoughts as thoughts_router  # noqa: E402
+
+app.include_router(thoughts_router.router)
+
 
 # --------------------
 # Root

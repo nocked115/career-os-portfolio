@@ -1,0 +1,20 @@
+
+/* 삭제 확인 — 매주 반복은 "이 날만 빼기" 를 함께 보인다. */
+.cal-rail-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* 종류 표시. 글자 옆에 작게 — 색만으로는 못 가린다. */
+.cal-icon {
+  font-style: normal;
+  margin-right: 4px;
+  opacity: 0.75;
+}
+
+/* 새로 생긴 두 종류. 색은 기존 결을 따른다. */
+.tone-exam { background: var(--evidence, #c2802a); }
+.tone-text-exam { color: var(--evidence, #c2802a); }
+.tone-club { background: var(--accent-soft, #7a8cf0); }
+.tone-text-club { color: var(--accent-soft, #7a8cf0); }

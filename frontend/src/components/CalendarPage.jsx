@@ -17,12 +17,28 @@ import RoutinesCard from "./RoutinesCard"
 
 const DAYS = ["월", "화", "수", "목", "금", "토", "일"]
 
+/* 종류마다 표시를 붙인다. 글자만 있으면 한눈에 안 갈린다(수현).
+   앱이 쓰는 결대로 유니코드 글리프를 쓴다 — 내비게이션(◇ ◎ ▲ ◷)과
+   같은 계열이고, 아이콘 파일을 새로 들일 이유가 없다. */
+const ICONS = {
+  school: "▦",     // 시간표
+  exam: "◉",       // 시험
+  work: "◆",       // 일 · 지원
+  pencil: "✎",     // 동아리
+  person: "○",
+  pin: "◈",
+  clock: "◷",      // 마감
+  dot: "·"
+}
+
 const KINDS = [
-  { key: "class", label: "수업" },
-  { key: "work", label: "일 · 알바" },
-  { key: "personal", label: "개인 일정" },
-  { key: "fixed", label: "고정" },
-  { key: "deadline", label: "마감" }
+  { key: "class", label: "수업", icon: "school" },
+  { key: "exam", label: "시험", icon: "exam" },
+  { key: "work", label: "일 · 알바", icon: "work" },
+  { key: "club", label: "동아리", icon: "pencil" },
+  { key: "personal", label: "개인 일정", icon: "person" },
+  { key: "fixed", label: "고정", icon: "pin" },
+  { key: "deadline", label: "마감", icon: "clock" }
 ]
 
 const APPLICATION_LABELS = {
@@ -330,6 +346,7 @@ export default function CalendarPage() {
           {KINDS.map((kind) => (
             <span key={kind.key} className="cal-legend-item">
               <i className={`cal-swatch tone-${kind.key}`} />
+              <i className="cal-icon" aria-hidden="true">{ICONS[kind.icon]}</i>
               {kind.label}
             </span>
           ))}
@@ -470,6 +487,9 @@ export default function CalendarPage() {
               {day.blocks.map((block) => (
                 <li key={block.id} className="cal-rail-row">
                   <span className={`cal-rail-time tone-text-${block.kind}`}>
+                    <i className="cal-icon" aria-hidden="true">
+                      {ICONS[block.icon] ?? ICONS.dot}
+                    </i>
                     {takesTime(block)
                       ? `${block.start}–${block.end}`
                       : block.kind_label}
@@ -485,15 +505,33 @@ export default function CalendarPage() {
                   </span>
 
                   {confirming === block.id ? (
-                    <button
-                      className="chip cal-danger"
-                      disabled={working}
-                      onClick={() =>
-                        run(() => api.calendar.removeBlock(block.id))
-                      }
-                    >
-                      {block.repeats ? "매주 전부 삭제" : "삭제"}
-                    </button>
+                    <span className="cal-rail-confirm">
+                      {/* 매주 반복은 하루만 빼는 쪽을 먼저 보인다. 중간고사
+                          주처럼 하루만 비는 일이 훨씬 흔하고, 반복을 지우면
+                          학기 내내 비는 시간으로 잡힌다. */}
+                      {block.repeats && (
+                        <button
+                          className="chip"
+                          disabled={working}
+                          onClick={() =>
+                            run(() =>
+                              api.calendar.skipBlockOnce(block.id, day.date)
+                            )
+                          }
+                        >
+                          이 날만 빼기
+                        </button>
+                      )}
+                      <button
+                        className="chip cal-danger"
+                        disabled={working}
+                        onClick={() =>
+                          run(() => api.calendar.removeBlock(block.id))
+                        }
+                      >
+                        {block.repeats ? "매주 전부 삭제" : "삭제"}
+                      </button>
+                    </span>
                   ) : (
                     <button
                       className="chip"

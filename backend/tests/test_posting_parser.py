@@ -145,3 +145,56 @@ def test_a_held_posting_leaves_the_deadline_strip(client):
     client.patch(f"/opportunities/{posting['id']}", json={"status": "on_hold"})
 
     assert client.get("/today/deadlines").json()["deadlines"] == []
+
+
+def test_a_detail_line_does_not_become_the_title(db_session):
+    """실제로 그랬다 — 한 공고의 제목이 "마감: 상시채용으로 현재 접수 확인."
+    이 됐다.
+
+    STRONG_TITLE 이 "채용" 을 찾는데 그 글자가 상시"채용" 안에 들어 있어서,
+    진짜 제목보다 마감 줄이 먼저 걸렸다. 제목은 "Researcher" 로 WEAK 에만
+    걸려 순위에서 밀렸다. 항목 줄은 제목 후보가 아니다.
+    """
+    text = """스카이랩스 — 머신러닝/딥러닝 Researcher 신입
+https://example.com/jobs/1
+* 형태·근무지: 정규직, 수습 3개월 / 경기 성남 판교.
+* 마감: 상시채용으로 현재 접수 확인.
+* 지원 조건: 포트폴리오 필수."""
+
+    parsed = parser.parse_posting(db_session, text)
+
+    assert "Researcher" in parsed["title"]["value"]
+    assert "마감" not in parsed["title"]["value"]
+
+
+def test_a_real_title_with_채용_still_wins(db_session):
+    """항목 줄만 빼는 것이지 "채용" 이 든 제목을 버리는 게 아니다."""
+    text = """2026 하반기 데이터 분석가 채용
+https://example.com/jobs/2
+* 마감: 2026년 11월 1일."""
+
+    parsed = parser.parse_posting(db_session, text)
+
+    assert parsed["title"]["value"] == "2026 하반기 데이터 분석가 채용"
+
+
+def test_a_numbered_heading_is_the_title(db_session):
+    """실제로 그랬다 — "FDO 커리어프로그램 1기" 는 직무 낱말이 하나도
+    없어서 제목이 통째로 비었고, 회사명도 같이 날아갔다.
+
+    번호 매긴 머리글이 있으면 그게 제목이다. 낱말로 알아맞힐 일이 아니다.
+    """
+    text = """2. 우아한청년들 — FDO 커리어프로그램 1기 (신입)
+https://career.woowayouths.com/recruitment/R2610001/detail
+* 마감: 2026년 10월 28일."""
+
+    parsed = parser.parse_posting(db_session, text)
+
+    assert parsed["title"]["value"] == "우아한청년들 — FDO 커리어프로그램 1기 (신입)"
+
+
+def test_the_number_itself_is_dropped(db_session):
+    text = """1. 한빛전자 — 데이터 분석가 채용
+https://example.com/jobs/1"""
+
+    assert not parser.parse_posting(db_session, text)["title"]["value"].startswith("1.")

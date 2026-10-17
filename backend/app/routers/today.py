@@ -132,12 +132,22 @@ def add_task(body: schemas.PlanTaskAdd, db: Session = Depends(get_db)):
     """
     try:
         return today_service.add_task(
-            db, body.kind, body.target_id, body.title, body.minutes
+            db, body.kind, body.target_id, body.title, body.minutes, body.on
         )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/upcoming")
+def get_upcoming(db: Session = Depends(get_db)):
+    """오늘 다음으로 해야 할 것 — 날짜별로.
+
+    수현: "오늘 · 내일 해야 할 거 이런 게시판 뭐 하나 만들어주면 안 돼?"
+    오늘 판은 오늘만 보여서, 며칠 뒤 약속을 적을 데가 없었다.
+    """
+    return today_service.upcoming(db)
 
 
 @router.post("/tasks/{task_id}/reopen")

@@ -159,6 +159,71 @@ function OutputsSection({ step, outputs, experience, working, readOnly, run }) {
    — 총 걸린 시간 3시간 (예상보다 00시간 오버) / 남긴 자료들 노션 등."
 
    없는 것은 없다고 적는다. 채워 넣으면 영수증이 아니라 상장이 된다. */
+/* 얼마나 걸렸나.
+
+   수현: "실제 세 시간이라고 넣은 게 잘 들어갔는지 모르겠거든. 30분 ·
+   세 시간 · 끝날 때까지, 뭐 이런 식으로."
+
+   분 단위 숫자 칸만 두면 "세 시간" 을 3 으로 적는다. 실제로 그랬고,
+   그래서 기록이 한 줄도 안 남았다. 자주 쓰는 길이를 눌러서 고르게 하고,
+   그 밖의 값만 직접 적는다. */
+const SPENT_PRESETS = [30, 60, 120, 180]
+
+function TimeSpent({ minutes, onPick, planned }) {
+  const [typing, setTyping] = useState("")
+
+  const pick = (value) => {
+    setTyping("")
+    onPick(minutes === value ? null : value)
+  }
+
+  return (
+    <div className="learn-spent">
+      <span className="learn-spent-key">얼마나 걸렸나요</span>
+
+      <div className="learn-spent-chips">
+        {SPENT_PRESETS.map((preset) => (
+          <button
+            key={preset}
+            className={minutes === preset ? "chip chip-on" : "chip"}
+            aria-pressed={minutes === preset}
+            onClick={() => pick(preset)}
+          >
+            {minutesText(preset)}
+          </button>
+        ))}
+
+        <label className="learn-spent-other">
+          직접
+          <input
+            className="plan-input"
+            type="number"
+            min="0"
+            max="1440"
+            step="5"
+            placeholder={planned ? String(planned) : "분"}
+            value={typing}
+            onChange={(event) => {
+              setTyping(event.target.value)
+              const value = Number(event.target.value)
+              onPick(event.target.value === "" || Number.isNaN(value) ? null : value)
+            }}
+          />
+          분
+        </label>
+      </div>
+
+      {/* 안 고르고 끝내도 된다. 다만 무엇이 빠지는지는 말해 준다. */}
+      <p className="muted form-hint">
+        {minutes != null
+          ? `${minutesText(minutes)} 으로 남깁니다.`
+          : "안 적어도 끝낼 수 있어요. 적으면 다음 추정이 그만큼 정확해집니다."}
+      </p>
+    </div>
+  )
+}
+
+
 function Receipt({ receipt }) {
   const over = receipt.gap_minutes
 
@@ -349,10 +414,14 @@ function LearningSession({ stepId, onBack, onCompleted, onOpenSession, onToday }
     }
   }
 
-  const completeStep = () =>
+  /* 얼마나 걸렸나. 안 고르면 안 보낸다 — 적어야만 끝낼 수 있게 하면
+     적기 싫어서 안 끝내게 된다. */
+  const [spent, setSpent] = useState(null)
+
+  const completeStep = (actualMinutes) =>
     run(
       async () => {
-        setResult(await api.learningSteps.complete(stepId))
+        setResult(await api.learningSteps.complete(stepId, actualMinutes))
         // 결과 카드는 맨 위에 뜬다. 체크리스트 아래에서 눌렀으면 안 보인다.
         window.scrollTo({ top: 0, behavior: "smooth" })
       },
@@ -781,7 +850,15 @@ function LearningSession({ stepId, onBack, onCompleted, onOpenSession, onToday }
           </Button>
         )}
 
-        <Button writes disabled={working || isCompleted} onClick={completeStep}>
+        {!isCompleted && (
+          <TimeSpent minutes={spent} onPick={setSpent} planned={step.estimated_minutes} />
+        )}
+
+        <Button
+          writes
+          disabled={working || isCompleted}
+          onClick={() => completeStep(spent)}
+        >
           {isCompleted ? "완료한 단계" : "이 단계 완료로 표시"}
         </Button>
       </div>

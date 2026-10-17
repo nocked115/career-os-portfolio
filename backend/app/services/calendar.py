@@ -21,11 +21,33 @@ KINDS = ("class", "work", "personal", "fixed", "deadline")
 
 KIND_LABELS = {
     "class": "수업",
+    "exam": "시험",
     "work": "일 · 알바",
+    "club": "동아리",
     "personal": "개인 일정",
     "fixed": "고정",
     "deadline": "마감",
 }
+
+# 화면이 붙일 표시. 글자만 있으면 한눈에 안 갈린다.
+KIND_ICONS = {
+    "class": "school",
+    "exam": "exam",
+    "work": "work",
+    "club": "pencil",
+    "personal": "person",
+    "fixed": "pin",
+    "deadline": "clock",
+}
+
+# 이만큼 앞부터 "시험 주간" 으로 본다. 시험 당일만 비우면 늦다 —
+# 공부는 그 전에 한다.
+#
+# 6일로 뒀더니 수현의 10/22 중간고사가 10/15 에 안 걸렸다. 본인은 그
+# 주를 이미 시험 기간으로 살고 있는데 앱만 몰랐다. 시험 기간이 한 주
+# 통째인 학기에는 그 앞 며칠이 가장 중요하다. 한 학기에 두 번뿐이라
+# 넉넉히 잡아도 늘 켜져 있지 않는다.
+EXAM_LOOKAHEAD_DAYS = 10
 
 DAY_MINUTES = 24 * 60
 
@@ -41,6 +63,7 @@ def serialize(block) -> dict:
         "title": block.title,
         "kind": block.kind,
         "kind_label": KIND_LABELS.get(block.kind, block.kind),
+        "icon": KIND_ICONS.get(block.kind, "dot"),
         "weekday": block.weekday,
         "date": block.date,
         "repeats": block.weekday is not None,
@@ -51,6 +74,11 @@ def serialize(block) -> dict:
         "end": format_minute(block.end_minute),
         "minutes": block.end_minute - block.start_minute,
         "note": block.note,
+        # 이 반복에서 빠진 날들. 화면이 "이 날만 빼기" 를 되돌릴 수 있어야 한다.
+        "skips": sorted(
+            ({"date": row.date, "note": row.note} for row in block.skips),
+            key=lambda row: row["date"],
+        ),
     }
 
 
@@ -69,8 +97,12 @@ def list_blocks(db, weekday=None) -> list[dict]:
 
 
 def blocks_for(db, day: date):
-    """그날 실제로 걸리는 일정 — 매주 반복 + 그날짜 일회성."""
-    return (
+    """그날 실제로 걸리는 일정 — 매주 반복 + 그날짜 일회성.
+
+    반복에서 **그날만 빠진 것**은 뺀다. 중간고사 주처럼 하루만 비는 일이
+    흔한데, 전에는 반복을 통째로 지우는 수밖에 없었다.
+    """
+    rows = (
         db.query(models.CalendarBlock)
         .filter(
             (models.CalendarBlock.weekday == day.weekday())
@@ -79,6 +111,15 @@ def blocks_for(db, day: date):
         .order_by(models.CalendarBlock.start_minute)
         .all()
     )
+
+    skipped = {
+        row.block_id
+        for row in db.query(models.CalendarBlockSkip)
+        .filter(models.CalendarBlockSkip.date == day)
+        .all()
+    }
+
+    return [row for row in rows if row.id not in skipped]
 
 
 def _merge(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -343,4 +384,99 @@ def build_month(db, year: int, month: int) -> dict:
         "window_label": _window_label(profile),
         "daily_cap_minutes": profile.daily_cap_minutes,
         "weeks": [days[i:i + 7] for i in range(0, len(days), 7)],
+    }
+
+
+def skip_once(db, block, day: date, note: str = "") -> dict:
+    """반복에서 그날 하루만 뺀다. 반복 자체는 그대로 둔다.
+
+    수현: "매주 있는 거를 전부 삭제 말고 하나씩 삭제할 수 있는 그런 거
+    없나." 중간고사 주에 수업 하나를 빼려고 반복을 지우면 학기 내내
+    비는 시간으로 잡힌다.
+    """
+    if block.weekday is None:
+        raise ValueError("매주 반복이 아닌 일정은 그냥 지우면 됩니다.")
+
+    if day.weekday() != block.weekday:
+        raise ValueError("그 요일에 없는 일정입니다.")
+
+    existing = next((row for row in block.skips if row.date == day), None)
+
+    if existing is None:
+        db.add(models.CalendarBlockSkip(
+            block_id=block.id, date=day, note=(note or "").strip(),
+        ))
+        db.commit()
+        db.refresh(block)
+
+    return serialize(block)
+
+
+def unskip(db, block, day: date) -> dict:
+    """뺐던 날을 되돌린다."""
+    existing = next((row for row in block.skips if row.date == day), None)
+
+    if existing is not None:
+        db.delete(existing)
+        db.commit()
+        db.refresh(block)
+
+    return serialize(block)
+
+
+def exam_window(db, day: date | None = None) -> dict | None:
+    """시험 주간인가. 맞으면 언제 · 무슨 과목인지 같이 돌려준다.
+
+    수현: "오늘 일주일 중간고사 중인데 ... 지금 얘 학습 계획에 대부분
+    무언가 안 주거든? 이번 일주일은 유동적으로 따로 학습하는 것을 조금
+    빼고 중간고사에 몰두하세요 이런 것들."
+
+    앱이 시험을 **알 수가 없었다.** 시험을 "수업" 으로 적으면 그 시간만
+    먹고 뜻은 안 남는다. 종류를 따로 두고(exam), 앞으로 며칠 안에 시험이
+    있으면 시험 주간으로 본다 — 시험 당일만 비우면 늦다. 공부는 그 전에
+    한다.
+
+    **계획을 대신 바꾸지는 않는다.** 줄일지 말지는 사람이 정한다
+    (오늘 계획의 "계획은 제안이지 명령이 아니다" 와 같은 선이다).
+    """
+    day = day or date.today()
+    last = day + timedelta(days=EXAM_LOOKAHEAD_DAYS)
+
+    exams = (
+        db.query(models.CalendarBlock)
+        .filter(models.CalendarBlock.kind == "exam")
+        .filter(models.CalendarBlock.date.isnot(None))
+        .filter(models.CalendarBlock.date >= day)
+        .filter(models.CalendarBlock.date <= last)
+        .order_by(models.CalendarBlock.date, models.CalendarBlock.start_minute)
+        .all()
+    )
+
+    if not exams:
+        return None
+
+    skipped = {
+        (row.block_id, row.date)
+        for row in db.query(models.CalendarBlockSkip).all()
+    }
+    exams = [row for row in exams if (row.id, row.date) not in skipped]
+
+    if not exams:
+        return None
+
+    return {
+        "active": True,
+        "count": len(exams),
+        "first_day": exams[0].date,
+        "last_day": exams[-1].date,
+        "days_until_first": (exams[0].date - day).days,
+        "subjects": [
+            {
+                "title": row.title,
+                "date": row.date,
+                "start": format_minute(row.start_minute),
+                "days_away": (row.date - day).days,
+            }
+            for row in exams
+        ],
     }

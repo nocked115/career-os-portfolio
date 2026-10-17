@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..services import market as market_service
 from ..services import vocabulary as vocabulary_service
+from ..services import aspiration as aspiration_service
 
 router = APIRouter(prefix="/analytics", tags=["market"])
 
@@ -49,6 +50,20 @@ def get_skill_gaps(db: Session = Depends(get_db)):
     여기 % 와 순위표 % 가 다른 뜻이 되어 나란히 못 놓는다.
     """
     return vocabulary_service.scan(db)
+
+
+@router.get("/aspiration")
+def get_aspiration(db: Session = Depends(get_db)):
+    """지금은 지원 못 하는 자리가 요구하는 것 — 목표표.
+
+    수현: "지원 자격이 안 되는 그거 ... 거기서 요구 역량만 뽑아서
+    참고자료로 쓰던가 해. 내가 가진 프로젝트나 이런 거랑 합치면 되겠네."
+
+    막힌 공고를 목록에서 내리는 것까지는 이미 한다. 내리고 나면
+    요구사항도 같이 사라지던 것이 문제였다 — 지금 못 가는 자리가 무엇을
+    요구하는지는 몇 년짜리 목표표이지 버릴 정보가 아니다.
+    """
+    return aspiration_service.build(db)
 
 
 @router.get("/blocked-skills")

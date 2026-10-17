@@ -558,3 +558,45 @@
   border-top: 1px solid var(--line-soft, #eceef1);
   font-size: 12px;
 }
+
+/* 얼마나 걸렸나 — 완료 버튼 옆에서 고른다. */
+.learn-spent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.learn-spent-key {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.learn-spent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.learn-spent-other {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.learn-spent-other .plan-input {
+  width: 68px;
+}
+
+.learn-spent + .btn {
+  align-self: flex-start;
+}
+
+.learn-actions {
+  flex-wrap: wrap;
+  gap: 10px;
+}

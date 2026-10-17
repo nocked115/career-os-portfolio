@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..database import get_db
 from ..services import application as application_service
+from ..services import emphasis as emphasis_service
 from ..services import jd as jd_service
 from ._common import get_or_404
 
@@ -108,6 +109,31 @@ def move(
         "forced": force,
         "allowed_next": application_service.allowed_next(status),
     }
+
+
+@router.get("/applications/{application_id}/emphasis")
+def emphasis(application_id: int, db: Session = Depends(get_db)):
+    """이 공고가 보는 것 — 그리고 내 어느 경험이 그걸 보여주는가.
+
+    수현: "공고 파악하면 우대사항이랑 회사에서 보는 스킬들 · 협업 경험
+    이런 키워드 너가 알아서 추출해서, 이걸 강조하면 좋아요."
+
+    분석(analysis)은 도구를 뽑는다. 그런데 공고가 보는 것의 절반은
+    도구가 아니다 — "여러 이해관계자와 함께 일하는 것이 즐거운 분" 같은
+    말을 앱이 통째로 흘려보내고 있었다.
+    """
+    application = get_or_404(
+        db, models.Application, application_id, "Application"
+    )
+
+    if application.opportunity is None:
+        return {
+            "has_text": False,
+            "note": "공고가 연결되어 있지 않아요.",
+            "sections": [], "traits": [], "flags": [],
+        }
+
+    return emphasis_service.build(db, application.opportunity)
 
 
 # --------------------------------

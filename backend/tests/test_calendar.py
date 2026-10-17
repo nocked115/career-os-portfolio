@@ -6,6 +6,7 @@
 from datetime import date, datetime, timedelta
 
 from app import models
+from app.services import calendar as calendar_service
 from app.services import today as today_service
 
 
@@ -259,3 +260,170 @@ def test_calendar_deadlines_reach_the_today_strip_but_not_the_plan(
 
     candidates = today_service.build_candidates(db_session, date.today())
     assert not any("캡스톤" in c["title"] for c in candidates)
+
+
+def test_one_week_can_be_skipped_without_losing_the_rest(client, db_session):
+    """수현: "매주 있는 거를 전부 삭제 말고 하나씩 삭제할 수 있는 그런 거
+    없나."
+
+    중간고사 주에 수업 하나를 빼려고 반복을 지우면 학기 내내 비는
+    시간으로 잡힌다. 그 하루만 뺀다.
+    """
+    block = models.CalendarBlock(
+        title="추천시스템 수업", kind="class", weekday=3,
+        start_minute=630, end_minute=705,
+    )
+    db_session.add(block)
+    db_session.commit()
+
+    exam_week = date(2026, 10, 22)          # 목요일
+    other_week = date(2026, 10, 29)         # 그다음 목요일
+    assert exam_week.weekday() == 3
+
+    client.post(f"/calendar/blocks/{block.id}/skip", json={
+        "date": exam_week.isoformat(), "note": "중간고사",
+    })
+
+    titles = lambda day: [
+        row.title for row in calendar_service.blocks_for(db_session, day)
+    ]
+
+    assert titles(exam_week) == []
+    assert titles(other_week) == ["추천시스템 수업"]
+
+    # 반복은 그대로 남아 있다.
+    assert db_session.get(models.CalendarBlock, block.id) is not None
+
+
+def test_the_skipped_day_can_be_put_back(client, db_session):
+    block = models.CalendarBlock(
+        title="생성형 AI 수업", kind="class", weekday=0,
+        start_minute=630, end_minute=705,
+    )
+    db_session.add(block)
+    db_session.commit()
+
+    monday = date(2026, 10, 19)
+    client.post(f"/calendar/blocks/{block.id}/skip",
+                json={"date": monday.isoformat()})
+    assert calendar_service.blocks_for(db_session, monday) == []
+
+    client.delete(f"/calendar/blocks/{block.id}/skip?date={monday.isoformat()}")
+
+    assert len(calendar_service.blocks_for(db_session, monday)) == 1
+
+
+def test_skipping_the_same_day_twice_is_harmless(client, db_session):
+    block = models.CalendarBlock(
+        title="수업", kind="class", weekday=3, start_minute=630, end_minute=705,
+    )
+    db_session.add(block)
+    db_session.commit()
+
+    for _ in range(2):
+        response = client.post(f"/calendar/blocks/{block.id}/skip",
+                               json={"date": "2026-10-22"})
+        assert response.status_code == 200
+
+    assert len(response.json()["skips"]) == 1
+
+
+def test_a_one_off_block_is_not_skippable(client, db_session):
+    """하루짜리는 그냥 지우면 된다. 빼기를 허용하면 지우기와 뜻이 겹친다."""
+    block = models.CalendarBlock(
+        title="추천시스템 중간고사", kind="class", date=date(2026, 10, 22),
+        start_minute=600, end_minute=720,
+    )
+    db_session.add(block)
+    db_session.commit()
+
+    response = client.post(f"/calendar/blocks/{block.id}/skip",
+                           json={"date": "2026-10-22"})
+
+    assert response.status_code == 400
+
+
+def test_skipping_a_day_the_class_is_not_on_is_refused(client, db_session):
+    block = models.CalendarBlock(
+        title="수업", kind="class", weekday=3, start_minute=630, end_minute=705,
+    )
+    db_session.add(block)
+    db_session.commit()
+
+    # 2026-10-21 은 수요일 — 목요일 수업이 없는 날이다.
+    response = client.post(f"/calendar/blocks/{block.id}/skip",
+                           json={"date": "2026-10-21"})
+
+    assert response.status_code == 400
+
+
+def _exam(db, title, day, start=600, end=720):
+    block = models.CalendarBlock(
+        title=title, kind="exam", date=day, start_minute=start, end_minute=end,
+    )
+    db.add(block)
+    db.commit()
+    return block
+
+
+def test_no_exam_means_no_window(db_session):
+    assert calendar_service.exam_window(db_session, date(2026, 10, 15)) is None
+
+
+def test_an_exam_a_few_days_out_opens_the_window(db_session):
+    """시험 당일만 비우면 늦다. 공부는 그 전에 한다."""
+    _exam(db_session, "추천시스템 — 중간고사", date(2026, 10, 22))
+
+    window = calendar_service.exam_window(db_session, date(2026, 10, 19))
+
+    assert window["active"] is True
+    assert window["days_until_first"] == 3
+    assert window["subjects"][0]["title"] == "추천시스템 — 중간고사"
+    assert window["subjects"][0]["days_away"] == 3
+
+
+def test_an_exam_far_away_is_not_this_week(db_session):
+    _exam(db_session, "기말고사", date(2026, 12, 15))
+
+    assert calendar_service.exam_window(db_session, date(2026, 10, 15)) is None
+
+
+def test_a_past_exam_is_not_a_window(db_session):
+    _exam(db_session, "중간고사", date(2026, 10, 10))
+
+    assert calendar_service.exam_window(db_session, date(2026, 10, 15)) is None
+
+
+def test_exams_come_back_in_date_order(db_session):
+    _exam(db_session, "생성형 AI", date(2026, 10, 21))
+    _exam(db_session, "추천시스템", date(2026, 10, 19))
+
+    window = calendar_service.exam_window(db_session, date(2026, 10, 19))
+
+    assert [row["title"] for row in window["subjects"]] == ["추천시스템", "생성형 AI"]
+    assert window["count"] == 2
+
+
+def test_the_plan_carries_the_exam_window(client, db_session):
+    """전에는 중간고사 주에도 평소와 똑같은 분량을 내밀었다. 앱이 시험을
+    알 수가 없었기 때문이다."""
+    _exam(db_session, "추천시스템 — 중간고사", date.today() + timedelta(days=2))
+
+    plan = client.get("/today/plan").json()
+
+    assert plan["exam"]["days_until_first"] == 2
+    assert plan["exam"]["subjects"][0]["title"] == "추천시스템 — 중간고사"
+
+
+def test_each_block_carries_an_icon(db_session):
+    """수현: "학교면 그냥 학교 모양, 지원이면 work, 동아리면 연필,
+    마감이면 시계 이런 식으로." 글자만 있으면 한눈에 안 갈린다."""
+    block = models.CalendarBlock(
+        title="동아리 모임", kind="club", weekday=5,
+        start_minute=600, end_minute=720,
+    )
+    db_session.add(block)
+    db_session.commit()
+
+    assert calendar_service.serialize(block)["icon"] == "pencil"
+    assert calendar_service.serialize(block)["kind_label"] == "동아리"

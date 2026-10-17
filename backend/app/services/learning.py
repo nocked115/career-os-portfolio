@@ -219,6 +219,9 @@ def build_session(db, step) -> dict:
             "status": step.status,
             "progress_percent": step.progress_percent,
             "estimated_minutes": step.estimated_minutes,
+            # 끝내며 적은 시간. 빠뜨리면 저장돼 있어도 화면이 못 받는다 —
+            # 오늘 카드에서 똑같이 당했다(커밋 147).
+            "actual_minutes": step.actual_minutes,
             "completed_at": step.completed_at,
             "due_date": step.due_date,
         },
@@ -412,10 +415,19 @@ def completion_receipt(db, step) -> dict:
     # 실제로 적은 시간만 센다. 안 적은 날은 세지 않는다 — 0 분으로 치면
     # "한 번에 끝냈다" 는 거짓말이 된다.
     measured = [task for task in tasks if task.actual_minutes is not None]
-    actual = sum(task.actual_minutes for task in measured)
+
+    # 단계를 끝내며 한 번에 적은 시간이 있으면 그것이 이 단계의 시간이다.
+    # 날짜별로 적은 것이 있으면 그 합을 쓴다. 둘을 더하지 않는다 — 같은
+    # 시간을 두 번 세게 된다.
+    if step.actual_minutes is not None:
+        actual, measured_days = step.actual_minutes, len(measured) or 1
+    else:
+        actual, measured_days = sum(t.actual_minutes for t in measured), len(measured)
+
+    has_actual = step.actual_minutes is not None or bool(measured)
 
     estimated = step.estimated_minutes or 0
-    gap = (actual - estimated) if (measured and estimated) else None
+    gap = (actual - estimated) if (has_actual and estimated) else None
 
     items = sorted(step.checklist, key=lambda item: (item.position, item.id))
     done_items = [item for item in items if item.done]
@@ -431,8 +443,8 @@ def completion_receipt(db, step) -> dict:
 
         "estimated_minutes": estimated,
         # 적은 기록이 없으면 None. 0 이 아니다.
-        "actual_minutes": actual if measured else None,
-        "measured_days": len(measured),
+        "actual_minutes": actual if has_actual else None,
+        "measured_days": measured_days,
         "gap_minutes": gap,
 
         "checked": len(done_items),
@@ -460,7 +472,7 @@ def completion_receipt(db, step) -> dict:
         # 비어 있는 것. 채우라고 말하되 채워 넣지는 않는다.
         "missing": [
             label for label, empty in (
-                ("걸린 시간", not measured),
+                ("걸린 시간", not has_actual),
                 ("남긴 자료", not step.outputs),
             ) if empty
         ],

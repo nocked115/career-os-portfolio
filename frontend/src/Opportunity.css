@@ -385,3 +385,28 @@
 .signal-fill-warn {
   background: var(--evidence, #c2802a);
 }
+
+/* 까닭을 적는 칸. .opp-block-form 은 진작 있었는데 화면이 안 그려져서
+   한 번도 쓰이지 않았다 — 부모가 넘긴 onBlock 을 상세 컴포넌트가
+   받지 않고 있었다. */
+.opp-block-label {
+  display: grid;
+  gap: 4px;
+
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.opp-block-label .plan-input {
+  width: 100%;
+  font-weight: 400;
+}
+
+.opp-block-form .btn {
+  justify-self: start;
+}
+
+.opp-block-form .form-hint {
+  margin: 0;
+}

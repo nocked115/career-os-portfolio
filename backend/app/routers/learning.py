@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -178,6 +179,22 @@ def get_learning_path_progress(
 # Learning Step
 # --------------------------------
 
+def _next_position(db, learning_path_id) -> int:
+    """맨 뒤 자리. **개수가 아니라 가장 큰 번호 다음**이다.
+
+    화면이 steps.length 를 보내고 있었다. 중간 단계를 지우면 개수는 줄지만
+    번호는 그대로라, 7개짜리 경로의 번호가 0~7 이 된다. 거기에 7 을 보내면
+    이미 차 있는 자리라 409 가 난다 — 실제로 Tave 논문 스터디와 생성형 AI
+    에서 단계를 하나도 못 넣었다.
+    """
+    largest = (
+        db.query(func.max(models.LearningStep.position))
+        .filter(models.LearningStep.learning_path_id == learning_path_id)
+        .scalar()
+    )
+    return 0 if largest is None else largest + 1
+
+
 def _reject_duplicate_position(db, learning_path_id, position, exclude_id=None):
     """(learning_path_id, position) 유니크 제약을 500 대신 409 로 돌려준다."""
     if position is None:
@@ -214,13 +231,18 @@ def create_learning_step(
         "Learning path",
     )
 
-    _reject_duplicate_position(
-        db,
-        payload.learning_path_id,
-        payload.position,
-    )
+    fields = payload.model_dump()
 
-    step = models.LearningStep(**payload.model_dump())
+    if fields["position"] is None:
+        fields["position"] = _next_position(db, payload.learning_path_id)
+    else:
+        _reject_duplicate_position(
+            db,
+            payload.learning_path_id,
+            fields["position"],
+        )
+
+    step = models.LearningStep(**fields)
 
     db.add(step)
     db.commit()
@@ -623,9 +645,15 @@ def start_learning_step(
 @router.post("/learning-steps/{step_id}/complete")
 def complete_learning_step(
     step_id: int,
+    body: schemas.TaskCompleteRequest | None = None,
     db: Session = Depends(get_db),
 ):
     """스텝을 완료 처리하고 경로 진행률까지 갱신한다.
+
+    걸린 시간은 **여기서도** 받는다. 오늘 할 일 카드에만 입력 칸이 있어서,
+    학습 화면에서 끝내면 시간이 한 번도 안 적혔다 — 실제로 수현의 기록에
+    actual_minutes 가 한 줄도 없었다. 끝내는 자리가 둘이면 묻는 자리도
+    둘이어야 한다.
 
     이 한 번의 호출로 학습 -> 진행률 -> 우선순위 -> Today Plan 이 이어진다.
 
@@ -655,6 +683,12 @@ def complete_learning_step(
         )
         .all()
     )
+
+    # 단계 전체를 끝내며 적은 시간은 **단계에** 적는다. 그날 할 일 줄에
+    # 나눠 담으면(커밋 141) 오늘 몫 30분과 주차 전체 5시간을 견주게 되어
+    # 속도 보정이 10배로 잡힌다. 하루 몫의 시간은 오늘 카드에서 받는다.
+    if body is not None and body.actual_minutes is not None:
+        step.actual_minutes = body.actual_minutes
 
     for task in today_tasks:
         task.status = "done"

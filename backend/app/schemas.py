@@ -329,7 +329,10 @@ class LearningStepCreate(BaseModel):
     learning_path_id: int
     title: str
     description: str = ""
-    position: int = Field(ge=0)
+    # 안 주면 **맨 뒤**에 붙인다. 화면이 개수를 세어 보냈더니, 중간을
+    # 지워 번호에 구멍이 난 경로에서는 그 번호가 이미 차 있어 409 가 났다.
+    # 자리 번호는 서버가 안다 — 화면이 셀 일이 아니다.
+    position: int | None = Field(default=None, ge=0)
     status: LearningStatus = "not_started"
     progress_percent: int = Field(default=0, ge=0, le=100)
     estimated_minutes: int = Field(default=0, ge=0)
@@ -339,6 +342,10 @@ class LearningStepCreate(BaseModel):
 
 class LearningStepResponse(LearningStepCreate):
     id: int
+
+    # 단계를 끝내며 적은 시간. 응답에 넣지 않으면 저장돼 있어도 화면은
+    # 못 받는다 — 오늘 카드에서 똑같은 일이 있었다(커밋 147).
+    actual_minutes: int | None = None
 
     class Config:
         from_attributes = True
@@ -653,6 +660,8 @@ class PlanTaskAdd(BaseModel):
     target_id: int | None = None
     title: str = Field(default="", max_length=200)
     minutes: int = Field(default=30, ge=5, le=480)
+    # 언제 할 것인가. 안 주면 오늘. 며칠 뒤 약속을 적을 데가 없었다.
+    on: DateValue | None = None
 
 
 class TaskSkipRequest(BaseModel):
@@ -939,7 +948,11 @@ class ProfileUpdate(BaseModel):
 # --------------------------------
 
 # deadline 은 시간을 먹지 않는다 — 그날까지의 선이다.
-CalendarKind = Literal["class", "work", "personal", "fixed", "deadline"]
+# 시험은 수업과 따로 둔다. 같은 "수업" 으로 적으면 앱이 그 주에 학습을
+# 줄여야 한다는 걸 알 수가 없다 — 시간만 먹고 뜻은 안 남는다.
+CalendarKind = Literal[
+    "class", "exam", "work", "club", "personal", "fixed", "deadline"
+]
 
 
 class CalendarBlockCreate(BaseModel):
@@ -996,6 +1009,42 @@ class CalendarBlockUpdate(BaseModel):
     end_minute: int | None = Field(default=None, ge=1, le=1440)
     all_day: bool | None = None
     note: str | None = None
+
+
+class ReminderCreate(BaseModel):
+    """적어 둘 알림. 앱이 모르는 것만."""
+
+    title: str = Field(min_length=1, max_length=200)
+    due: DateValue
+    # "10:00" 처럼. 없으면 그냥 그날.
+    at: str = Field(default="", max_length=20)
+    note: str = Field(default="", max_length=500)
+
+
+ThoughtKind = Literal["question", "idea", "note"]
+
+
+class ThoughtCreate(BaseModel):
+    """적어 둘 생각 한 줄."""
+
+    kind: ThoughtKind = "question"
+    body: str = Field(min_length=1, max_length=4000)
+    # 어디서 나온 생각인지. "추천시스템 수업" 처럼 한마디.
+    source: str = Field(default="", max_length=120)
+
+
+class ThoughtDecide(BaseModel):
+    """무엇으로 정했는지. 비우면 다시 연다."""
+
+    decision: str = Field(default="", max_length=2000)
+
+
+class BlockSkip(BaseModel):
+    """매주 반복에서 뺄 하루."""
+
+    date: DateValue
+    # 왜 뺐는지. "중간고사" 한마디면 나중에 안다.
+    note: str = Field(default="", max_length=120)
 
 
 class CalendarSettingsUpdate(BaseModel):

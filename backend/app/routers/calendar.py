@@ -7,7 +7,7 @@
 
 from datetime import date as date_type
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -58,6 +58,38 @@ def delete_block(block_id: int, db: Session = Depends(get_db)):
     block = get_or_404(db, models.CalendarBlock, block_id, "Calendar block")
 
     return delete_instance(block, db)
+
+
+@router.post("/blocks/{block_id}/skip")
+def skip_block_once(
+    block_id: int,
+    body: schemas.BlockSkip,
+    db: Session = Depends(get_db),
+):
+    """매주 반복에서 그 하루만 뺀다.
+
+    수현: "매주 있는 거를 전부 삭제 말고 하나씩 삭제할 수 있는 그런 거
+    없나." 중간고사 주에 수업 하나를 빼려고 반복을 지우면 학기 내내
+    비는 시간으로 잡힌다.
+    """
+    block = get_or_404(db, models.CalendarBlock, block_id, "Calendar block")
+
+    try:
+        return calendar_service.skip_once(db, block, body.date, body.note)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.delete("/blocks/{block_id}/skip")
+def unskip_block(
+    block_id: int,
+    date: date_type = Query(...),
+    db: Session = Depends(get_db),
+):
+    """뺐던 날을 되돌린다."""
+    block = get_or_404(db, models.CalendarBlock, block_id, "Calendar block")
+
+    return calendar_service.unskip(db, block, date)
 
 
 @router.get("/day")

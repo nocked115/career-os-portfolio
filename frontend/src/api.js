@@ -187,7 +187,12 @@ export const learningSteps = {
   // Mission 022
   session: (id) => get(`/learning-steps/${id}/session`),
   start: (id) => post(`/learning-steps/${id}/start`),
-  complete: (id) => post(`/learning-steps/${id}/complete`),
+  // 걸린 시간을 같이 보낸다. 안 적어도 끝낼 수 있다.
+  complete: (id, actualMinutes) =>
+    post(
+      `/learning-steps/${id}/complete`,
+      actualMinutes != null ? { actual_minutes: actualMinutes } : {}
+    ),
   // 다른 세션에 붙여넣을 텍스트 { text }
   handoff: (id) => get(`/learning-steps/${id}/handoff`),
   // 이 단계에서 내가 만든 것 — 노트 · 자료 · 코드의 주소
@@ -227,6 +232,9 @@ export const todayPlan = {
   // 잘못 누른 완료 · 넘김 되돌리기. 루틴이면 그날 기록도 지운다.
   // 시간이 남아 하고 싶은 것을 직접 넣는다 — 프로젝트 · 학습 단계 · 자료 · 직접 적기
   addTask: (body) => post("/today/tasks", body),
+  /* 오늘 다음으로 해야 할 것 — 날짜별. 오늘 판은 오늘만 보여서
+     며칠 뒤 약속을 적을 데가 없었다. */
+  upcoming: () => get("/today/upcoming"),
   reopen: (taskId) => post(`/today/tasks/${taskId}/reopen`),
   revive: (taskId) => post(`/today/tasks/${taskId}/revive`),
   // 기한 없이 빼두기 — 치우기와 달리 남는다. 거기서 바로 끝낼 수 있다.
@@ -269,6 +277,11 @@ export const calendar = {
   addBlock: (body) => post("/calendar/blocks", body),
   updateBlock: (id, body) => patch(`/calendar/blocks/${id}`, body),
   removeBlock: (id) => del(`/calendar/blocks/${id}`),
+  /* 매주 반복에서 그 하루만 빼기. 반복은 그대로 둔다. */
+  skipBlockOnce: (id, date, note = "") =>
+    post(`/calendar/blocks/${id}/skip`, { date, note }),
+  unskipBlock: (id, date) =>
+    del(`/calendar/blocks/${id}/skip?date=${date}`),
   day: (date) => get(`/calendar/day${date ? `?date=${date}` : ""}`),
   week: () => get("/calendar/week"),
   month: (year, month) => get(`/calendar/month?year=${year}&month=${month}`),
@@ -351,6 +364,27 @@ export const blockOpportunity = (id, reason) =>
   post(`/opportunities/${id}/block`, { reason })
 
 export const blockedSkills = () => get("/analytics/blocked-skills")
+
+/* 지금은 지원 못 하는 자리가 요구하는 것 — 조건 · 스킬 · 내 프로젝트. */
+export const aspiration = () => get("/analytics/aspiration")
+
+/* 적어 둔 생각 — 고민 · 아이디어 · 메모. 여러 세션에 흩어지는 것을
+   한 곳에 모은다. */
+/* 알리미 — 날짜가 있는 것을 한 판에. 공고 마감 · 시험 · 학습 마감은
+   앱이 이미 알고, 사람이 적는 것은 앱이 모르는 것뿐이다. */
+export const reminders = {
+  list: () => get("/reminders"),
+  create: (body) => post("/reminders", body),
+  done: (id) => post(`/reminders/${id}/done`),
+  remove: (id) => del(`/reminders/${id}`)
+}
+
+export const thoughts = {
+  list: (status) => get(`/thoughts${status ? `?status=${status}` : ""}`),
+  create: (body) => post("/thoughts", body),
+  decide: (id, decision) => post(`/thoughts/${id}/decide`, { decision }),
+  remove: (id) => del(`/thoughts/${id}`)
+}
 
 export const opportunityMap = (opportunityId) =>
   get(`/opportunities/${opportunityId}/map`)

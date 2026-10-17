@@ -83,3 +83,58 @@ def test_a_step_from_another_path_is_refused(client, db_session):
     assert client.post(
         f"/learning-paths/{path.id}/steps/reorder", json={"step_ids": mixed}
     ).status_code == 400
+
+
+def test_a_new_step_lands_after_the_last_one_even_with_a_gap(client, db_session):
+    """수현: "왜 학습에 단계별 추가가 안 먹히냐" — 409 가 줄줄이 났다.
+
+    화면이 steps.length 를 자리 번호로 보냈다. 중간 단계를 지우면 개수는
+    줄지만 번호는 그대로라, 7개짜리 경로의 번호가 0~7 이 된다. 거기에
+    7 을 보내면 이미 찬 자리라 409 다. 실제로 Tave 논문 스터디와 생성형
+    AI 에서 단계를 하나도 못 넣었다.
+    """
+    path = models.LearningPath(title="Tave 논문 스터디")
+    db_session.add(path)
+    db_session.flush()
+    for position in (0, 1, 3):          # 2번을 지운 자리
+        db_session.add(models.LearningStep(
+            learning_path_id=path.id, title=f"{position}주차", position=position,
+        ))
+    db_session.commit()
+
+    created = client.post("/learning-steps", json={
+        "learning_path_id": path.id, "title": "4주차",
+    })
+
+    assert created.status_code == 201
+    assert created.json()["position"] == 4
+
+
+def test_the_first_step_of_an_empty_path_is_zero(client, db_session):
+    path = models.LearningPath(title="빈 경로")
+    db_session.add(path)
+    db_session.commit()
+
+    created = client.post("/learning-steps", json={
+        "learning_path_id": path.id, "title": "1주차",
+    })
+
+    assert created.json()["position"] == 0
+
+
+def test_an_explicit_position_that_is_taken_is_still_refused(client, db_session):
+    """자리를 **직접 정해** 보낼 때는 겹침을 그대로 막는다. 조용히 뒤로
+    옮기면 순서를 정한 사람의 뜻이 사라진다."""
+    path = models.LearningPath(title="코테")
+    db_session.add(path)
+    db_session.flush()
+    db_session.add(models.LearningStep(
+        learning_path_id=path.id, title="1일차", position=0,
+    ))
+    db_session.commit()
+
+    clash = client.post("/learning-steps", json={
+        "learning_path_id": path.id, "title": "2일차", "position": 0,
+    })
+
+    assert clash.status_code == 409

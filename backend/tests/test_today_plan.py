@@ -1062,3 +1062,38 @@ def test_duplicates_show_as_one_row_without_rebuilding(client, db_session):
     assert len([t for t in plan["tasks"] if t["opportunity_id"] == opportunity.id]) == 1
     # 읽기는 지우지 않는다.
     assert db_session.query(models.DailyPlanTask).count() == 2
+
+
+def test_finishing_until_done_lifts_the_task_cap(db_session):
+    """수현: "오늘 몇 시간 할래요 — 30분 · 세 시간 · 끝날 때까지."
+
+    시간을 안 정했는데 개수로 막으면 "끝까지" 가 거짓말이 된다. 마감 앞이나
+    몰아서 하는 날에 앱이 2개만 주고 멈추는 것이 오히려 방해가 된다.
+    """
+    from app.services.today import INTENSITY, NO_LIMIT_MINUTES, allocate
+
+    normal = INTENSITY["normal"]
+    candidates = [
+        {"title": f"할 일 {index}", "minutes": 30} for index in range(8)
+    ]
+
+    limited, _ = allocate(candidates, 180, normal)
+    assert len(limited) == normal["max_tasks"]
+
+    everything, _ = allocate(candidates, NO_LIMIT_MINUTES, normal)
+    assert len(everything) == 8
+
+
+def test_until_done_still_stops_when_the_day_runs_out(db_session):
+    """개수 상한만 푸는 것이지 시간이 무한해지는 건 아니다."""
+    from app.services.today import INTENSITY, NO_LIMIT_MINUTES, allocate
+
+    normal = INTENSITY["normal"]
+    candidates = [
+        {"title": f"할 일 {index}", "minutes": 60} for index in range(40)
+    ]
+
+    chosen, remaining = allocate(candidates, NO_LIMIT_MINUTES, normal)
+
+    assert sum(item["minutes"] for item in chosen) <= NO_LIMIT_MINUTES
+    assert remaining < normal["min_block"]

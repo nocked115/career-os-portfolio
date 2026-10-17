@@ -529,7 +529,7 @@ function OpportunityRow({
   match, selected, onSelect, working, readOnly, onTrash, onToggleFavorite
 }) {
   return (
-    <div className="opp-row-wrap">
+    <div className="opp-row-wrap" id={`opp-${match.opportunity_id}`}>
       <OpportunityRowCard match={match} selected={selected} onSelect={onSelect} />
       {!readOnly && (
         <span className="opp-row-actions">
@@ -600,13 +600,17 @@ function OpportunityRowCard({ match, selected, onSelect }) {
   )
 }
 
-function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, onStatus, onRemove, onKeep }) {
+function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, onStatus, onRemove, onKeep, onBlock }) {
   const verdict = VERDICT[match.recommendation] ?? VERDICT.skip
   const href = externalHref(match.source_url)
   const parked = match.lane === "on_hold" || match.lane === "not_interested"
   const archived = match.lane === "archived"
   const flags = match.requirement_flags ?? []
   const [confirmRemove, setConfirmRemove] = useState(false)
+  /* 지원 자격이 안 되는 까닭. 부모는 줄곧 onBlock 을 넘기고 있었는데
+     이 컴포넌트가 받지를 않아서, 적는 칸이 화면에 아예 없었다.
+     배지(자격 안 됨 · …)와 API 는 다 있는데 입구만 끊겨 있던 셈이다. */
+  const [reason, setReason] = useState(match.blocked_reason || "")
 
   return (
     <section className="card opp-detail">
@@ -748,6 +752,36 @@ function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, o
             오늘 계획에 준비 추가
           </Button>
         </div>
+
+        {/* 지원할 수 없는 까닭. 지우지 않고 적어 두는 이유는, 까닭이 남아야
+            "이 스킬 공고 4건 중 3건이 석사 요구" 를 말할 수 있어서다. */}
+        {onBlock && (
+          <div className="opp-block-form">
+            <label className="opp-block-label">
+              지원 자격이 안 되는 까닭
+              <input
+                className="plan-input"
+                type="text"
+                placeholder="예: 석사 이상 필수"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+            </label>
+            <Button
+              variant="secondary"
+              writes
+              disabled={working || reason.trim() === (match.blocked_reason || "")}
+              onClick={() => onBlock(reason.trim())}
+            >
+              {reason.trim() ? "자격 안 됨으로 표시" : "자격 표시 지우기"}
+            </Button>
+            <p className="muted form-hint">
+              목록에는 그대로 두고 수요 계산에서만 뺍니다. 비워서 저장하면
+              되돌아갑니다.
+            </p>
+          </div>
+        )}
+
         <div className="ui-row">
           {archived ? (
             <>
@@ -816,11 +850,13 @@ function OpportunityDetail({ match, working, onCreateApplication, onAddToPlan, o
   )
 }
 
-function OpportunitiesPage() {
+function OpportunitiesPage({ openId = null, onOpen } = {}) {
   const [tab, setTab] = useState("all")
   const [view, setView] = useState("review")
   const [selectedId, setSelectedId] = useState(null)
   const [showImport, setShowImport] = useState(false)
+  // 마감 지난 것 펼치기. 기본은 접음.
+  const [showExpired, setShowExpired] = useState(false)
 
   const [matches, setMatches] = useState([])
   const [signals, setSignals] = useState(null)
@@ -831,6 +867,9 @@ function OpportunitiesPage() {
      "Computer Vision 수요 4건" 만 보이고, 그중 3건이 석사 자리라는 건
      안 보인다. 앱이 거꾸로 그걸 공부하라고 말하게 된다. */
   const [blocked, setBlocked] = useState(null)
+  /* 막힌 공고가 요구하는 것. 지원 못 하는 자리야말로 가고 싶은
+     자리라서, 그 요구사항이 몇 년짜리 목표표가 된다. */
+  const [aspiration, setAspiration] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
   const [working, setWorking] = useState(false)
@@ -845,20 +884,22 @@ function OpportunitiesPage() {
       if (!quiet) setLoading(true)
       setLoadError(null)
 
-      const [scored, market, sources, skillGaps, blocked] = await Promise.all([
+      const [scored, market, sources, skillGaps, blocked, wanted] = await Promise.all([
         api.opportunities.matches(),
         api.marketSignals.get(6),
         // 오래된 배포에는 없는 주소다. 없다고 화면이 죽지 않게 한다.
         api.opportunities.sources().catch(() => ({ sources: [], failed: [] })),
         api.marketSignals.gaps().catch(() => null),
         // 자격 때문에 못 쓰는 공고. 오래된 배포에는 없는 주소다.
-        api.blockedSkills().catch(() => null)
+        api.blockedSkills().catch(() => null),
+        api.aspiration().catch(() => null)
       ])
 
       setMatches(scored.matches)
       setSignals(market)
       setGaps(skillGaps)
       setBlocked(blocked)
+      setAspiration(wanted)
       setBrokenSources(
         (sources.sources ?? []).filter((row) => row.status === "failed")
       )
@@ -980,6 +1021,44 @@ function OpportunitiesPage() {
       return `'${match.title}' 을(를) 삭제했어요. 다음 수집 때도 다시 들이지 않아요.`
     }, "기회를 삭제하지 못했습니다.")
 
+  /* 오늘 할 일에서 "시작" 을 누르고 왔다. 그 공고를 **찾아 주지 않으면**
+     148건짜리 목록 앞에 세워 놓는 것과 같다 — 어느 줄 얘기였는지 다시
+     찾아야 한다. 칸도 맞춰 열고, 그 줄로 데려가 잠깐 표시한다. */
+  useEffect(() => {
+    if (!openId) return
+
+    const target = matches.find((match) => match.opportunity_id === openId)
+    if (!target) return
+
+    setSelectedId(openId)
+    setTab("all")
+    setView(target.lane ?? "review")
+
+    /* 줄이 그려질 때까지 기다린다. 한 번만 보고 없으면 끝내면, 목록이
+       아직 안 그려진 사이에 지나가 버려서 아무 데도 안 간다 — 실제로
+       그랬다. 1초까지만 찾고 포기한다. */
+    let timer
+    let tries = 0
+
+    const findAndShow = () => {
+      const row = document.getElementById(`opp-${openId}`)
+
+      if (!row) {
+        if (tries++ > 20) return
+        timer = setTimeout(findAndShow, 50)
+        return
+      }
+
+      row.scrollIntoView({ behavior: "smooth", block: "center" })
+      row.classList.add("opp-row-found")
+      timer = setTimeout(() => row.classList.remove("opp-row-found"), 2400)
+    }
+
+    timer = setTimeout(findAndShow, 50)
+
+    return () => clearTimeout(timer)
+  }, [openId, matches])
+
   if (loading) {
     return <LoadingState label="기회를 불러오는 중…" />
   }
@@ -1021,11 +1100,20 @@ function OpportunitiesPage() {
       return (b.match_score ?? 0) - (a.match_score ?? 0)
     })
 
-  const worthDoing = pinned(visible.filter((match) => match.recommendation !== "skip"))
-  const notNow = pinned(visible.filter((match) => match.recommendation === "skip"))
+  /* 보관함에서 **마감 지난 것은 접어 둔다.** 79건 중 61건이 마감 지남이라
+     내가 판단해서 닫은 것(직접 닫음 · 불합격)이 그 사이에 묻혔다. 지우지는
+     않는다 — 수요 집계와 목표표가 그 분모를 쓴다. */
+  const expired = (match) =>
+    match.lane === "archived" && (match.archive_reason || "").startsWith("마감 지남")
+
+  const shown = showExpired ? visible : visible.filter((match) => !expired(match))
+  const hiddenCount = visible.length - shown.length
+
+  const worthDoing = pinned(shown.filter((match) => match.recommendation !== "skip"))
+  const notNow = pinned(shown.filter((match) => match.recommendation === "skip"))
 
   const selected =
-    visible.find((match) => match.opportunity_id === selectedId) ?? worthDoing[0] ?? visible[0] ?? null
+    shown.find((match) => match.opportunity_id === selectedId) ?? worthDoing[0] ?? shown[0] ?? null
 
   const viewCount = (key) =>
     byType.filter((match) => key === "all" || match.lane === key).length
@@ -1209,6 +1297,22 @@ function OpportunitiesPage() {
         ) : (
           <div className="split-grid">
             <div className="split-list">
+              {hiddenCount > 0 && (
+                <button
+                  className="chip opp-expired-toggle"
+                  onClick={() => setShowExpired(true)}
+                >
+                  마감 지난 {hiddenCount}건 보기
+                </button>
+              )}
+              {showExpired && (
+                <button
+                  className="chip opp-expired-toggle"
+                  onClick={() => setShowExpired(false)}
+                >
+                  마감 지난 것 접기
+                </button>
+              )}
               {worthDoing.map((match) => (
                 <OpportunityRow
                   key={match.opportunity_id}
@@ -1371,6 +1475,74 @@ function OpportunitiesPage() {
       {/* 자격 때문에 못 쓰는 공고. 지우지 않고 세어 둔 까닭이 이것이다 —
           "Computer Vision 공고 4건 중 3건이 석사 요구" 를 말할 수 있어야
           그 스킬을 공부할지 정할 수 있다. */}
+      {/* 지금은 못 가는 자리가 요구하는 것. 목록에서 내린 공고라도
+          요구사항은 버리지 않는다 — 그게 몇 년짜리 목표표다. */}
+      {aspiration?.postings > 0 && (
+        <section className="card">
+          <p className="card-label">지금은 지원 못 하는 자리가 요구하는 것</p>
+
+          <p className="muted opp-meta">
+            {aspiration.postings}건 · {aspiration.organizations.slice(0, 3).join(" · ")}
+            {aspiration.organizations.length > 3 &&
+              ` 외 ${aspiration.organizations.length - 3}곳`}
+            {" — "}목록에서는 내렸지만 요구사항은 남겼어요. 지원할 수 없는
+            자리일수록 가고 싶은 자리라서, 여기 적힌 것이 다음 목표가 됩니다.
+          </p>
+
+          {aspiration.conditions.length > 0 && (
+            <div className="asp-conditions">
+              {aspiration.conditions.map((row) => (
+                <div className="asp-condition" key={row.kind}>
+                  <p className="asp-condition-head">
+                    <strong>{row.label}</strong>
+                    <span className="muted"> · {row.count}건</span>
+                  </p>
+                  <ul className="asp-lines">
+                    {row.lines.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {aspiration.skills.length > 0 && (
+            <table className="asp-table">
+              <thead>
+                <tr>
+                  <th>요구 역량</th>
+                  <th>공고</th>
+                  <th>내가 쓴 곳</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aspiration.skills.map((row) => (
+                  <tr key={row.skill} className={`asp-${row.standing}`}>
+                    <td>{row.skill}</td>
+                    <td className="asp-count">{row.asked_by}건</td>
+                    <td>
+                      {row.projects.length > 0 ? (
+                        row.projects.map((project) => project.title).join(" · ")
+                      ) : (
+                        <span className="muted">
+                          {row.standing === "learning" ? "배우는 중" : "아직 없어요"}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <p className="muted form-hint">
+            프로젝트가 비어 있는 줄이 다음에 만들 것입니다. 하나를 만들면
+            여러 줄이 같이 채워집니다.
+          </p>
+        </section>
+      )}
+
       {blocked?.skills?.length > 0 && (
         <section className="card">
           <p className="card-label">자격 때문에 못 쓰는 공고</p>

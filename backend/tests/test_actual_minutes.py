@@ -138,3 +138,130 @@ def test_the_slice_shrinks_when_things_take_longer(db_session):
     slower = checklist.today_slice(step, minutes=30, factor=1.5)
     assert slower["count"] == 2
     assert slower["adjusted"] is True
+
+
+def test_the_step_keeps_its_own_time_not_the_day_slice(client, db_session):
+    """수현: "실제 세 시간이라고 넣은 게 잘 들어갔는지 모르겠거든."
+
+    처음엔 그 시간을 **그날 할 일 줄에** 나눠 담았다(커밋 141). 그래서
+    비교가 어긋났다 — 오늘 몫은 30분인데 적은 시간은 주차 전체를 끝낸
+    5시간이라, 속도 보정이 10배로 잡혔다. 추정이 옳았어도 마찬가지다.
+    하루치 계획에 주차 전체 시간을 적는 꼴이기 때문이다.
+
+    같은 것끼리 비교한다 — 단계 시간은 단계에, 하루 몫은 오늘 카드에.
+    """
+    path = models.LearningPath(title="Tave 논문 스터디")
+    db_session.add(path)
+    db_session.flush()
+    step = models.LearningStep(
+        learning_path_id=path.id, title="3주차 A", position=0, estimated_minutes=150,
+    )
+    db_session.add(step)
+    db_session.commit()
+
+    task = _task(db_session, planned=30)
+    task.learning_step_id = step.id
+    db_session.commit()
+
+    body = client.post(
+        f"/learning-steps/{step.id}/complete", json={"actual_minutes": 300}
+    ).json()
+
+    db_session.expire_all()
+    assert step.actual_minutes == 300
+    assert step.estimated_minutes == 150
+    # 오늘 줄은 끝났다고만 한다. 30분짜리 줄에 300분을 적지 않는다.
+    assert task.status == "done"
+    assert task.actual_minutes is None
+
+    assert body["receipt"]["actual_minutes"] == 300
+    assert body["receipt"]["gap_minutes"] == 150
+    assert "걸린 시간" not in body["receipt"]["missing"]
+
+
+def test_the_pace_is_not_skewed_by_a_whole_step_landing_on_one_day(client, db_session):
+    """보정은 하루 몫끼리만 견준다. 단계 전체 시간이 섞이면 10배가 나온다."""
+    from app.services import today as today_service
+
+    path = models.LearningPath(title="Tave 논문 스터디")
+    db_session.add(path)
+    db_session.flush()
+    step = models.LearningStep(
+        learning_path_id=path.id, title="3주차 A", position=0, estimated_minutes=150,
+    )
+    db_session.add(step)
+    db_session.commit()
+
+    slice_task = _task(db_session, planned=30)
+    slice_task.learning_step_id = step.id
+    db_session.commit()
+
+    # 하루 몫에 맞는 기록 다섯 개 — 계획대로 걸렸다.
+    for offset in range(5):
+        _task(db_session, planned=30, actual=30, day_offset=offset + 1)
+
+    client.post(f"/learning-steps/{step.id}/complete", json={"actual_minutes": 300})
+
+    pace = today_service.pace_factor(db_session)
+
+    assert pace is not None
+    assert pace["factor"] == 1.0
+
+
+def test_finishing_without_the_time_still_works_from_the_learning_screen(client, db_session):
+    path = models.LearningPath(title="Tave 논문 스터디")
+    db_session.add(path)
+    db_session.flush()
+    step = models.LearningStep(
+        learning_path_id=path.id, title="3주차 A", position=0, estimated_minutes=150,
+    )
+    db_session.add(step)
+    db_session.commit()
+
+    body = client.post(f"/learning-steps/{step.id}/complete").json()
+
+    assert body["receipt"]["actual_minutes"] is None
+    assert "걸린 시간" in body["receipt"]["missing"]
+
+
+def test_the_recorded_time_reaches_the_screen(client, db_session):
+    """적어 넣은 시간이 직렬화에서 빠져 있었다. 저장은 되는데 오늘 화면은
+    그 값을 받지도 못했다 — 적은 사람 눈에는 안 적힌 것과 같다.
+
+    실제로 5시간을 적었는데 카드가 그대로라 "완료가 안 됐다" 로 읽혔다.
+    """
+    task = _task(db_session, planned=30)
+    client.post(f"/today/tasks/{task.id}/complete", json={"actual_minutes": 300})
+
+    db_session.expire_all()
+    payload = today_service.serialize_task(task)
+
+    assert payload["actual_minutes"] == 300
+    assert payload["status"] == "done"
+
+
+def test_an_unrecorded_task_carries_none_not_zero(client, db_session):
+    task = _task(db_session, planned=30)
+    client.post(f"/today/tasks/{task.id}/complete")
+
+    db_session.expire_all()
+    assert today_service.serialize_task(task)["actual_minutes"] is None
+
+
+def test_the_step_time_reaches_the_screen(client, db_session):
+    """저장만 되고 응답에 없으면 화면은 못 받는다. 오늘 카드에서 이미
+    한 번 겪은 일이라(커밋 147) 단계 쪽도 같이 지킨다."""
+    path = models.LearningPath(title="생성형 AI")
+    db_session.add(path)
+    db_session.flush()
+    step = models.LearningStep(
+        learning_path_id=path.id, title="2주차", position=0, estimated_minutes=180,
+    )
+    db_session.add(step)
+    db_session.commit()
+
+    client.post(f"/learning-steps/{step.id}/complete", json={"actual_minutes": 300})
+
+    session = client.get(f"/learning-steps/{step.id}/session").json()
+    assert session["step"]["actual_minutes"] == 300
+    assert session["step"]["estimated_minutes"] == 180

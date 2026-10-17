@@ -67,6 +67,13 @@ function App() {
     segments[0] === "applications" && segments[1]
       ? Number(segments[1]) || null
       : null
+  /* 오늘 할 일의 "지원할지 정하기" 에서 바로 그 공고로 간다. 목록만
+     열어 주면 어느 공고 얘기인지 다시 찾아야 한다 — 자료 쪽에서 이미
+     같은 문제를 고쳤는데(ResourceStart) 기회만 남아 있었다. */
+  const opportunityId =
+    segments[0] === "opportunities" && segments[1]
+      ? Number(segments[1]) || null
+      : null
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -256,7 +263,10 @@ function App() {
 
       {view === "opportunities" && (
         <main className="dashboard">
-          <OpportunitiesPage />
+          <OpportunitiesPage
+            openId={opportunityId}
+            onOpen={(id) => navigate(["opportunities", String(id)])}
+          />
         </main>
       )}
 

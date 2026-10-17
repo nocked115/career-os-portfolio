@@ -12,6 +12,8 @@ import {
   WhyPanel
 } from "./ui"
 import { InlineCode } from "./ChecklistPanel"
+import { ReminderBoard } from "./ReminderBoard"
+import { ThoughtBox } from "./ThoughtBox"
 import { areaLabel, ddayLabel, greeting, minutesText, todayText } from "../format"
 import "../Today.css"
 import "../Checklist.css"
@@ -31,7 +33,12 @@ const STALE_PREVIEW = 4
 
    좁은 화면 순서: 요약 → 가장 먼저 할 일 → 작업 목록 → 근거. */
 
-const PRESETS = [30, 60, 120, 180]
+// 오늘 몇 시간 할래요. 마지막은 "끝날 때까지" — 시간을 안 정하는 선택이다.
+// 서버의 today.NO_LIMIT_MINUTES 와 같은 값이어야 한다.
+const NO_LIMIT = 1440
+const PRESETS = [30, 60, 120, 180, NO_LIMIT]
+const presetLabel = (preset) =>
+  preset === NO_LIMIT ? "끝날 때까지" : minutesText(preset)
 
 // 레일에는 결정에 직접 쓰인 것만. 아홉 개를 다 올리면 계산 설명 화면이 된다.
 const RAIL_KEYS = ["market", "gap", "learning", "time"]
@@ -853,6 +860,28 @@ function TaskCard({
           </div>
         )}
 
+        {/* 적어 넣은 시간을 끝낸 뒤에도 보인다. 안 보이면 적은 사람 눈에는
+            안 적힌 것과 같다 — 실제로 5시간을 적었는데 카드가 그대로라
+            "완료가 안 됐다" 고 읽혔다. */}
+        {task.status === "done" && task.actual_minutes != null && (
+          <p className="muted td-task-spent">
+            걸린 시간 <strong>{minutesText(task.actual_minutes)}</strong>
+            {task.minutes ? (
+              <>
+                {" · 계획 "}{minutesText(task.minutes)}
+                {task.actual_minutes !== task.minutes && (
+                  <>
+                    {" ("}
+                    {task.actual_minutes > task.minutes ? "+" : "−"}
+                    {minutesText(Math.abs(task.actual_minutes - task.minutes))}
+                    {")"}
+                  </>
+                )}
+              </>
+            ) : null}
+          </p>
+        )}
+
         {/* 잘못 누른 완료 · 넘김은 되돌린다. 완료가 남긴 기록도 같이 지워진다. */}
         {!planned && (
           <div className="ui-row td-task-actions">
@@ -1019,9 +1048,11 @@ function TodayPage({ onOpenStep, onWhy, onNavigate, onChanged }) {
     }
   }
 
-  const createPlan = () =>
+  /* 강도를 인자로 받는다. setIntensity 는 다음 렌더에나 반영돼서,
+     "가볍게 다시 세우기" 가 옛 강도로 세우는 일이 생긴다. */
+  const createPlan = (useIntensity) =>
     run(async () => {
-      const result = await api.todayPlan.create(minutes, intensity)
+      const result = await api.todayPlan.create(minutes, useIntensity ?? intensity)
 
       /* 저절로 치운 것은 조용히 넘기지 않는다. 마감이 지났다는 건 사실이라
          묻지 않고 치우지만, 무엇이 왜 사라졌는지는 말해야 한다. */
@@ -1154,7 +1185,9 @@ function TodayPage({ onOpenStep, onWhy, onNavigate, onChanged }) {
       return
     }
     if (task.application_id) return onNavigate(["applications", String(task.application_id)])
-    if (task.opportunity_id) return onNavigate("opportunities")
+    /* 목록만 열면 148건 앞에 세워 놓는 것과 같다. 그 공고로 데려간다. */
+    if (task.opportunity_id)
+      return onNavigate(["opportunities", String(task.opportunity_id)])
     if (task.project_id) return onNavigate("projects")
     /* 자료는 내 자료 **목록**으로 보내지 않는다. 책 한 권을 펼쳐놓고
        "시작하세요" 하는 것과 같아서, 눌러도 아무것도 안 나온 것처럼 보였다.
@@ -1235,7 +1268,7 @@ function TodayPage({ onOpenStep, onWhy, onNavigate, onChanged }) {
         title="아직 오늘 계획이 없어요"
         meta="우선순위 · 마감 · 어제 못 한 일을 보고 Career OS 가 골라 드려요."
         action={
-          <Button writes disabled={working} onClick={createPlan}>
+          <Button writes disabled={working} onClick={() => createPlan()}>
             계획 세우기
           </Button>
         }
@@ -1315,7 +1348,9 @@ function TodayPage({ onOpenStep, onWhy, onNavigate, onChanged }) {
           <div className="td-fact">
             <span className="td-fact-key">오늘 사용할 수 있는 시간</span>
             <strong className="td-fact-value">
-              {minutesText(plan.available_minutes)}
+              {plan.available_minutes >= NO_LIMIT
+                ? "끝날 때까지"
+                : minutesText(plan.available_minutes)}
             </strong>
             <span className="td-fact-hint">
               {calendar
@@ -1409,11 +1444,45 @@ function TodayPage({ onOpenStep, onWhy, onNavigate, onChanged }) {
 
           {/* 계획은 세운 순간의 판단으로 저장된다. 그 뒤 공고가 들어와 1위가 바뀌면
               할 일의 "선택 이유" 와 아래 "왜 이 계획인가" 가 서로 다른 말을 한다. */}
+          {/* 시험 주간. 앱이 시험을 알게 된 뒤로는 말을 해야 한다 —
+              전에는 중간고사 주에도 평소와 똑같은 분량을 내밀었다.
+              줄이는 건 누르는 사람이 정한다. */}
+          {plan?.exam && (
+            <Notice tone="warn">
+              <strong>
+                {plan.exam.days_until_first === 0
+                  ? "오늘 시험이 있어요."
+                  : `시험이 ${plan.exam.days_until_first}일 뒤예요.`}
+              </strong>{" "}
+              {plan.exam.subjects
+                .slice(0, 3)
+                .map((item) =>
+                  item.days_away === 0
+                    ? `${item.title} (오늘 ${item.start})`
+                    : `${item.title} (${item.days_away}일 뒤)`
+                )
+                .join(" · ")}
+              {plan.exam.count > 3 && ` 외 ${plan.exam.count - 3}개`}.{" "}
+              이번 주는 따로 하는 학습을 줄이고 시험에 몰두하는 편이 낫습니다.{" "}
+              <Button
+                variant="secondary"
+                writes
+                disabled={working}
+                onClick={() => {
+                  setIntensity("light")
+                  createPlan("light")
+                }}
+              >
+                가볍게 다시 세우기
+              </Button>
+            </Notice>
+          )}
+
           {plan?.outdated && (
             <Notice tone="warn">
               <strong>계획을 세운 뒤 바뀐 것이 있어요.</strong>{" "}
               {plan.outdated.reasons.join(" · ")}.{" "}
-              <Button variant="secondary" writes disabled={working} onClick={createPlan}>
+              <Button variant="secondary" writes disabled={working} onClick={() => createPlan()}>
                 지금 기준으로 다시 세우기
               </Button>
             </Notice>
@@ -1431,7 +1500,7 @@ function TodayPage({ onOpenStep, onWhy, onNavigate, onChanged }) {
                       aria-pressed={minutes === preset}
                       onClick={() => setMinutes(preset)}
                     >
-                      {minutesText(preset)}
+                      {presetLabel(preset)}
                     </button>
                   ))}
                 </div>
@@ -1454,7 +1523,7 @@ function TodayPage({ onOpenStep, onWhy, onNavigate, onChanged }) {
                 </div>
               </div>
 
-              <Button writes disabled={working} onClick={createPlan}>
+              <Button writes disabled={working} onClick={() => createPlan()}>
                 이 설정으로 다시 세우기
               </Button>
 
@@ -1494,7 +1563,7 @@ function TodayPage({ onOpenStep, onWhy, onNavigate, onChanged }) {
               title="아직 오늘 계획이 없습니다."
               body="우선순위 · 마감 · 어제 못 한 일을 보고 오늘 할 일을 1~3개 고릅니다."
               actions={[
-                { label: "계획 세우기", onClick: createPlan, primary: true, writes: true, disabled: working },
+                { label: "계획 세우기", onClick: () => createPlan(), primary: true, writes: true, disabled: working },
                 { label: "캘린더에서 시간 확인", href: "#/calendar" }
               ]}
             />
@@ -1793,6 +1862,14 @@ function TodayPage({ onOpenStep, onWhy, onNavigate, onChanged }) {
           )}
         </section>
       )}
+
+      {/* 알리미. 할 일 판과 따로 둔다 — 시키는 판과 알려 주는 판은
+          다른 것이다. */}
+      <ReminderBoard />
+
+      {/* 적어 둔 생각. 오늘 화면에 두는 까닭은 여기가 매일 들르는
+          자리라서다 — 따로 찾아가야 하는 자리에 두면 안 적게 된다. */}
+      <ThoughtBox />
     </div>
   )
 }

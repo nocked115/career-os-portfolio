@@ -1,0 +1,70 @@
+/* 알리미 — 날짜가 있는 것을 한 판에. */
+
+.rem-days {
+  display: grid;
+  gap: 12px;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rem-date {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+}
+
+/* 오늘 · 내일은 눈에 띄게. 그게 알리미의 전부다. */
+.rem-soon {
+  color: var(--evidence, #c2802a);
+  font-weight: 600;
+}
+
+.rem-items {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rem-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 6px 10px;
+  border-left: 3px solid var(--line-soft, #eceef1);
+  border-radius: 0 8px 8px 0;
+  background: var(--tint, #f5f6fa);
+
+  font-size: 13px;
+}
+
+.rem-title {
+  flex: 1;
+}
+
+.rem-label {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.rem-deadline { border-left-color: var(--accent, #4a6cf7); }
+.rem-exam     { border-left-color: var(--evidence, #c2802a); }
+.rem-learning { border-left-color: var(--accent-soft, #7a8cf0); }
+
+.rem-new {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.rem-new .plan-input { flex: 1 1 200px; }
+.rem-when { flex: 0 0 150px; }
+.rem-at   { flex: 0 0 90px; }

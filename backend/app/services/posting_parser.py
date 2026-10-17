@@ -45,7 +45,8 @@ SECTION_BREAKS = (
 
 STRONG_TITLE = re.compile(r"채용|모집|공고|인턴십|인턴")
 WEAK_TITLE = re.compile(
-    r"부문|직무|포지션|Engineer|Scientist|Analyst|Developer|개발자|분석가|기획자|연구원"
+    r"부문|직무|포지션|Engineer|Scientist|Analyst|Developer|Researcher|Designer"
+    r"|개발자|분석가|기획자|연구원|연구자"
 )
 
 ORGANIZATION = re.compile(
@@ -234,7 +235,14 @@ def find_requirement_flags(text: str) -> list[dict]:
     자격 머리글 아래를 먼저 보고, 머리글이 없으면 글 전체를 본다.
     """
     lines = [_clean(line) for line in (text or "").splitlines() if line.strip()]
-    scope = _qualifications(lines) or lines
+
+    # 자격 머리글이 없으면 글 전체를 보는데, 붙여넣은 글에는 사람이 적은
+    # 요약 줄이 섞여 있다. "잘 맞는 이유: … (2년 이상)" 이 경력 요건으로
+    # 잡혔다 — 공고가 요구한 게 아니라 요약에 쓰인 말이다.
+    scope = [
+        line for line in (_qualifications(lines) or lines)
+        if not DETAIL_LABEL.match(line)
+    ]
 
     flags = []
     seen = set()
@@ -252,8 +260,32 @@ def find_requirement_flags(text: str) -> list[dict]:
 # 제목 · 회사 · 종류
 # --------------------------------
 
+# "마감: …", "형태·근무지: …" 처럼 **항목**인 줄. 제목이 아니다.
+#
+# 이것 때문에 공고 하나의 제목이 "마감: 상시채용으로 현재 접수 확인." 이
+# 됐다. STRONG_TITLE 이 "채용" 을 찾는데 그 글자가 상시"채용" 안에 있어서,
+# 진짜 제목("스카이랩스 — 머신러닝/딥러닝 Researcher 신입")을 제쳤다.
+# 제목은 WEAK 에만 걸려서 순위에서 밀렸다.
+# 낱말로 시작하고 곧 콜론이 오면 항목으로 본다. 가운데를 짧게 허용하는
+# 것은 "형태·근무지:" 처럼 둘을 묶어 적는 줄이 흔해서다.
+DETAIL_LABEL = re.compile(
+    r"^(?:마감|접수|형태|고용|근무|지역|적합도|적합|지원|자격|우대|급여|연봉|"
+    r"전형|일정|오늘|비고|기타|이유|맞는|잘\s*맞|안\s*맞|보완|갖춘|부족|"
+    r"하는\s*일|요구\s*역량|추천|순위|부서|경력\s*조건)[^:：\n]{0,14}[:：]"
+)
+
+
 def _title(lines: list[str]) -> dict:
-    head = [line for line in lines[:15] if len(line) <= 80]
+    head = [
+        line for line in lines[:15]
+        if len(line) <= 80 and not DETAIL_LABEL.match(_clean(line))
+    ]
+
+    # 번호 매긴 머리글이 있으면 **그게 제목이다.** 낱말로 알아맞힐 일이
+    # 아니다 — "FDO 커리어프로그램 1기" 처럼 직무 낱말이 하나도 없는
+    # 제목이 흔하고, 그때마다 제목이 통째로 비었다.
+    if head and NUMBERED_HEAD.match(head[0]):
+        return _field(_clean(NUMBER_PREFIX.sub("", head[0])), head[0])
 
     for pattern in (STRONG_TITLE, WEAK_TITLE):
         line = next((item for item in head if pattern.search(item)), None)
@@ -365,22 +397,65 @@ def _split_at_links(lines: list[str]) -> list[list[str]]:
     return blocks
 
 
+# "1. 회사 — 직무" 처럼 번호를 매긴 제목.
+NUMBER_PREFIX = re.compile(r"^\s*\d{1,2}[.)]\s*")
+NUMBERED_HEAD = re.compile(r"^\s*\d{1,2}[.)]\s+\S")
+
+
+def _split_at_numbers(lines: list[str]) -> list[list[str]]:
+    """번호 매긴 제목에서 자른다. 제목 사이의 모든 줄이 그 공고에 남는다."""
+    blocks, current = [], []
+
+    for line in lines:
+        if NUMBERED_HEAD.match(line) and current:
+            blocks.append(current)
+            current = []
+        current.append(line)
+
+    if current:
+        blocks.append(current)
+
+    return blocks
+
+
 def split_postings(text: str) -> list[str]:
     """붙여넣은 글을 공고 단위로 자른다. 여러 건으로 볼 수 없으면 [] 를 돌려준다.
 
     여러 건으로 보는 조건은 하나다 — **링크가 있는 토막이 둘 이상**. 공고 본문 하나를
     통째로 붙여넣으면 빈 줄이 많아도 링크는 한두 개뿐이라 한 건으로 남는다.
     메일 알림은 공고마다 링크가 따로 붙어 있어 건별로 갈린다.
+
+    자르는 자리는 글 모양에 따라 다르다.
+
+      번호 매긴 제목이 둘 이상이면 **그 제목에서** 자른다. 이 모양은 링크가
+      제목 바로 밑에 오고 상세가 그 아래로 이어진다. 링크에서 끊으면 마감 ·
+      근무지 · 자격이 통째로 뒤 토막에 남고, 그 토막은 링크가 없어서 버려진다.
+      실제로 그래서 넣는 공고마다 마감이 비어 있었다.
+
+      번호가 없으면 **링크에서** 자른다. 메일 알림이 그 모양이다 —
+      한 공고가 링크로 끝나고 다음 공고 제목이 이어진다.
     """
     if not text or not text.strip():
         return []
 
-    blocks = [
-        block
-        for chunk in _chunks(text)
-        for block in _split_at_links(chunk)
-        if len(block) >= MIN_BLOCK_LINES
-    ]
+    lines = [line.rstrip() for line in text.splitlines()]
+    numbered = [line for line in lines if NUMBERED_HEAD.match(line)]
+
+    if len(numbered) > 1:
+        # 빈 줄로 먼저 자르면(_chunks) 상세가 제목에서 떨어져 나간다.
+        # 번호가 경계이므로 빈 줄은 경계가 아니다 — 통째로 넘긴다.
+        blocks = [
+            [line for line in block if line.strip()]
+            for block in _split_at_numbers([l for l in lines if l.strip()])
+        ]
+    else:
+        blocks = [
+            block
+            for chunk in _chunks(text)
+            for block in _split_at_links(chunk)
+        ]
+
+    blocks = [block for block in blocks if len(block) >= MIN_BLOCK_LINES]
 
     # 머리말 · 꼬리말(링크 없는 토막)은 공고로 치지 않는다.
     with_links = ["\n".join(block) for block in blocks if any(URL_LINE.search(l) for l in block)]

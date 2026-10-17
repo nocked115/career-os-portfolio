@@ -147,6 +147,102 @@ class CalendarBlock(Base):
         nullable=False,
     )
 
+    # 이 반복에서 빠진 날들. 중간고사 주처럼 하루만 비는 일이 흔한데,
+    # 전에는 반복을 통째로 지우는 수밖에 없었다 — 지우면 학기 내내
+    # 비는 시간으로 잡힌다.
+    skips = relationship(
+        "CalendarBlockSkip",
+        back_populates="block",
+        cascade="all, delete-orphan",
+    )
+
+
+class CalendarBlockSkip(Base):
+    """매주 반복에서 빠진 하루."""
+
+    __tablename__ = "calendar_block_skips"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    block_id = Column(
+        Integer,
+        ForeignKey("calendar_blocks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    date = Column(Date, nullable=False, index=True)
+
+    # 왜 빠졌는지. "중간고사" 처럼 한마디 적어 두면 나중에 안다.
+    note = Column(Text, default="", server_default="", nullable=False)
+
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    block = relationship("CalendarBlock", back_populates="skips")
+
+    __table_args__ = (
+        UniqueConstraint("block_id", "date", name="uq_block_skip"),
+    )
+
+
+class Reminder(Base):
+    """사람이 적어 둔 알림 — 날짜가 있는 것.
+
+    **일을 시키는 판이 아니라 알려 주는 판이다.** 시간을 재지 않고,
+    진행률을 움직이지 않고, 오늘 예산을 먹지 않는다.
+
+    알릴 것의 대부분은 앱이 이미 안다(공고 마감 · 지원서 마감 · 시험일 ·
+    학습 단계 마감). 이 표는 앱이 **모르는 것**만 담는다 — "친구에게
+    논문 전달", "Tave 강남 10시" 같은 것.
+    """
+
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    title = Column(String, nullable=False)
+    due = Column(Date, nullable=False, index=True)
+
+    # 몇 시에. 없으면 그냥 그날.
+    at = Column(String, default="", server_default="", nullable=False)
+
+    note = Column(Text, default="", server_default="", nullable=False)
+    done = Column(Boolean, default=False, server_default="0", nullable=False)
+
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class Thought(Base):
+    """적어 둔 생각 — 고민 · 아이디어 · 메모.
+
+    앱은 할 일 · 공고 · 스킬 · 증거를 안다. 그런데 무엇을 고민 중인지는
+    어디에도 없었다. 그게 가장 큰 결정인데도 그렇다.
+    """
+
+    __tablename__ = "thoughts"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # question(아직 못 정한 것) · idea(해 볼 만한 것) · note(그냥 적어 둠)
+    kind = Column(String, default="question", server_default="question",
+                  nullable=False, index=True)
+
+    body = Column(Text, nullable=False)
+
+    # 어디서 나온 생각인지. "추천시스템 수업", "다비 회고" 처럼 한마디.
+    source = Column(String, default="", server_default="", nullable=False)
+
+    status = Column(String, default="open", server_default="open",
+                    nullable=False, index=True)
+
+    # 무엇으로 정했는지. 닫을 때만 채운다 — 고민을 지우기만 하면 반 년 뒤
+    # 같은 고민을 처음부터 다시 한다.
+    decision = Column(Text, default="", server_default="", nullable=False)
+    decided_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False,
+    )
+
 
 # --------------------------------
 # Project <-> Skill 중간 테이블
@@ -768,6 +864,13 @@ class LearningStep(Base):
     status = Column(String, default="not_started", nullable=False)
     progress_percent = Column(Integer, default=0, nullable=False)
     estimated_minutes = Column(Integer, default=0, nullable=False)
+
+    # 이 단계를 끝내며 적은 시간. **하루 몫이 아니라 단계 전체**다.
+    # 전에는 이걸 그날 할 일 줄에 나눠 담았는데, 오늘 몫 30분과 주차 전체
+    # 5시간을 견주게 되어 속도 보정이 10배로 잡혔다. 같은 것끼리 비교해야
+    # 해서 자리를 따로 둔다. 안 적으면 None — 0 이 아니다.
+    actual_minutes = Column(Integer, nullable=True)
+
     completed_at = Column(DateTime, nullable=True)
 
     # 이 단계를 끝내야 하는 날 (예: Tave 발표일). 있으면 우선순위 1위 스킬이

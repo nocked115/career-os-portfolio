@@ -1,6 +1,6 @@
 """오늘 계획에 직접 넣기 — 시간이 남아 하고 싶은 것을 넣을 자리."""
 
-from datetime import date
+from datetime import date, timedelta
 
 from app import models
 
@@ -67,3 +67,67 @@ def test_a_hand_added_step_still_moves_its_progress(client, db_session):
     db_session.refresh(step)
 
     assert step.status == "completed"
+
+
+def test_a_task_can_be_put_on_a_later_day(client, db_session):
+    """수현: "오늘 · 내일 해야 할 거 이런 게시판 뭐 하나 만들어주면 안 돼?"
+
+    오늘 판에만 넣을 수 있어서, 내일 할 일을 적으려면 오늘 목록을
+    어지럽히는 수밖에 없었다.
+    """
+    later = date.today() + timedelta(days=4)
+
+    added = client.post("/today/tasks", json={
+        "kind": "custom", "title": "ScareBlock PPT", "minutes": 120,
+        "on": later.isoformat(),
+    }).json()
+
+    assert added["added"] is True
+
+    row = db_session.query(models.DailyPlanTask).filter_by(
+        title="ScareBlock PPT"
+    ).one()
+    assert row.plan_date == later
+
+
+def test_a_later_task_does_not_eat_todays_budget(client, db_session):
+    """앞으로 할 일을 오늘 시간에서 빼면 오늘 계획이 틀어진다."""
+    before = client.get("/today/plan").json()["planned_minutes"]
+
+    client.post("/today/tasks", json={
+        "kind": "custom", "title": "다음 주 발표", "minutes": 240,
+        "on": (date.today() + timedelta(days=5)).isoformat(),
+    })
+
+    assert client.get("/today/plan").json()["planned_minutes"] == before
+
+
+def test_upcoming_groups_by_day_and_skips_today(client, db_session):
+    tomorrow = date.today() + timedelta(days=1)
+
+    client.post("/today/tasks", json={
+        "kind": "custom", "title": "오늘 것", "minutes": 30,
+    })
+    client.post("/today/tasks", json={
+        "kind": "custom", "title": "내일 것", "minutes": 30,
+        "on": tomorrow.isoformat(),
+    })
+
+    upcoming = client.get("/today/upcoming").json()
+
+    assert upcoming["count"] == 1
+    assert upcoming["days"][0]["days_away"] == 1
+    assert [t["title"] for t in upcoming["days"][0]["tasks"]] == ["내일 것"]
+
+
+def test_a_finished_task_leaves_the_board(client, db_session):
+    tomorrow = date.today() + timedelta(days=1)
+    client.post("/today/tasks", json={
+        "kind": "custom", "title": "끝낼 것", "minutes": 30,
+        "on": tomorrow.isoformat(),
+    })
+    task = db_session.query(models.DailyPlanTask).filter_by(title="끝낼 것").one()
+
+    client.post(f"/today/tasks/{task.id}/complete")
+
+    assert client.get("/today/upcoming").json()["count"] == 0

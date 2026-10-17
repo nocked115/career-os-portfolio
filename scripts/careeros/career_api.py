@@ -2,7 +2,8 @@
 
 비밀번호는 실행할 때 getpass 로 묻는다. 파일 · 명령 기록에 남기지 않는다.
 
-  BASE         기본은 배포본. 로컬은 BASE=http://localhost:8130 (인증 안 묻는다)
+  BASE         기본은 이 노트북(http://localhost:8000). 로컬이 곧 실사용이다.
+               다른 데를 보려면 BASE=... 로 준다 (그때만 인증을 묻는다).
   CAREER_USER  아이디. 안 주면 묻는다 — 저장소에 아이디를 박아두지 않기 위해서다.
                묻는 입력도 화면에 안 보이게 받는다 (비밀번호를 잘못 넣어도 안 남는다).
                매번 묻는 게 번거로우면 `export CAREER_USER=...` 로 고정한다.
@@ -17,9 +18,10 @@ import urllib.error
 import urllib.request
 
 
-BASE = os.environ.get(
-    "BASE", "https://career-os-real-production.up.railway.app"
-).rstrip("/")
+# 기본은 이 노트북이다. 예전 기본값은 Railway 배포본이었는데, Trial 이
+# 끝나 그 주소는 이제 응답하지 않는다. 그대로 두니 스크립트가 죽은 데로
+# 붙으려다 비밀번호를 묻는 자리에서 멈췄다 — 실제로 그랬다.
+BASE = os.environ.get("BASE", "http://localhost:8000").rstrip("/")
 LOCAL = BASE.startswith(("http://localhost", "http://127.0.0.1"))
 
 
